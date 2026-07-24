@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens ported from github.com/sergioalexo/design-system (the
+ * "Master Design System" extracted from MediaFetch). HSL custom properties
+ * are the source of truth; @theme below just maps them to Tailwind v4
+ * utilities (bg-primary, text-muted-foreground, etc.) so light/dark stays
+ * automatic. Never hardcode a hex value in components -- use the semantic
+ * classes instead.
+ */
+@theme inline {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-shimmer: shimmer 2s linear infinite;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --primary: 346 77% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 346 77% 50%;
+  --radius: 0.625rem;
+}
+
+/* LumenDMX runs dark-only (nightclub/live-set UI) -- <body> always carries
+ * the `dark` class (see index.html), the light tokens above only exist so
+ * this file stays a drop-in match for the shared design system. */
+.dark {
+  --background: 240 10% 5%;
+  --foreground: 0 0% 95%;
+  --card: 240 8% 8%;
+  --card-foreground: 0 0% 95%;
+  --popover: 240 8% 7%;
+  --popover-foreground: 0 0% 95%;
+  --primary: 346 82% 56%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 14%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 240 5% 13%;
+  --muted-foreground: 240 5% 62%;
+  --accent: 240 5% 16%;
+  --accent-foreground: 0 0% 95%;
+  --destructive: 0 72% 55%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+  --border: 240 6% 16%;
+  --input: 240 6% 18%;
+  --ring: 346 82% 56%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family: var(--font-sans);
+}
+
+/* slim scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.45);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
