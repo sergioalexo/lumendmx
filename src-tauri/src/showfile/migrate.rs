@@ -36,6 +36,10 @@ pub fn migrate(raw: Value) -> Result<ShowFile, String> {
         value = upgrade_1_to_2(value);
         current_version = 2;
     }
+    if current_version == 2 {
+        value = upgrade_2_to_3(value);
+        current_version = 3;
+    }
 
     debug_assert_eq!(current_version, CURRENT_SCHEMA_VERSION);
 
@@ -94,6 +98,33 @@ fn upgrade_1_to_2(value: Value) -> Value {
     }
 
     obj.insert("schemaVersion".to_string(), Value::from(2));
+    Value::Object(obj)
+}
+
+/// v2 -> v3: `PatchedFixture` gains `universe` (every fixture was implicitly
+/// universe 1 before Setup could manage more than one), `fixtureNumber` (a
+/// stable command-line-visible number — defaults to 1-based patch order,
+/// matching Phase 3's in-memory placeholder exactly so nothing renumbers on
+/// upgrade), and `invertPan`/`invertTilt`/`swapPanTilt` (default off).
+fn upgrade_2_to_3(value: Value) -> Value {
+    let mut obj = match value {
+        Value::Object(o) => o,
+        _ => serde_json::Map::new(),
+    };
+
+    if let Some(Value::Array(patch)) = obj.get_mut("patch") {
+        for (index, fixture) in patch.iter_mut().enumerate() {
+            if let Value::Object(f) = fixture {
+                f.entry("universe").or_insert(Value::from(1));
+                f.entry("fixtureNumber").or_insert(Value::from(index as u64 + 1));
+                f.entry("invertPan").or_insert(Value::from(false));
+                f.entry("invertTilt").or_insert(Value::from(false));
+                f.entry("swapPanTilt").or_insert(Value::from(false));
+            }
+        }
+    }
+
+    obj.insert("schemaVersion".to_string(), Value::from(3));
     Value::Object(obj)
 }
 
@@ -156,7 +187,7 @@ mod tests {
     #[test]
     fn v1_ftdi_output_port_becomes_a_driver_config() {
         let migrated = migrate(v1_fixture(Value::String("COM9".to_string()))).unwrap();
-        assert_eq!(migrated.schema_version, 2);
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
         match &migrated.universes[0].driver {
             crate::output::config::DriverConfig::Ftdi { port, rate_hz } => {
                 assert_eq!(port.as_deref(), Some("COM9"));
@@ -170,6 +201,41 @@ mod tests {
     fn v1_unset_output_port_becomes_null_driver() {
         let migrated = migrate(v1_fixture(Value::Null)).unwrap();
         assert_eq!(migrated.universes[0].driver, crate::output::config::DriverConfig::Null);
+    }
+
+    /// A realistic v2 file: every `ShowFile` field present, `patch[]` fixtures
+    /// in the pre-Phase-4 shape (no universe/fixtureNumber/invert*/swap*).
+    fn v2_fixture(patch: Value) -> Value {
+        serde_json::json!({
+            "schemaVersion": 2,
+            "id": "show-1",
+            "name": "Old Show",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "modifiedAt": "2026-01-01T00:00:00Z",
+            "universes": [
+                { "id": 1, "name": "Universe 1", "driver": { "kind": "null" } }
+            ],
+            "patch": patch,
+            "workspaces": [],
+            "settings": { "outputRateHz": 30, "defaultFadeMs": 0 },
+            "legacyAssets": [],
+        })
+    }
+
+    #[test]
+    fn v2_patch_gains_universe_and_fixture_number() {
+        let patch = serde_json::json!([
+            { "id": "f1", "fixtureId": "par", "modeIndex": 0, "address": 1, "name": "Par 1" },
+            { "id": "f2", "fixtureId": "par", "modeIndex": 0, "address": 11, "name": "Par 2" },
+        ]);
+        let migrated = migrate(v2_fixture(patch)).unwrap();
+        assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+        assert_eq!(migrated.patch[0].universe, 1);
+        assert_eq!(migrated.patch[0].fixture_number, 1);
+        assert!(!migrated.patch[0].invert_pan);
+        assert!(!migrated.patch[0].invert_tilt);
+        assert!(!migrated.patch[0].swap_pan_tilt);
+        assert_eq!(migrated.patch[1].fixture_number, 2);
     }
 
     #[test]

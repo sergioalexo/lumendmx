@@ -238,20 +238,24 @@ usePatchStore.subscribe(() => {
 useLibraryStore.subscribe(markDirtyUnlessApplyingShow);
 
 /** Pushes the current patch to the engine as (a) which channels are HTP
- * (a fixture's dimmer channel) for the merge, and (b) the fixture-number ->
- * intensity-channel index the command line's `1 THRU 8 @ 50` resolves
- * against. Fixture numbers are just 1-based patch order for now — real
- * per-fixture ID assignment is Phase 4's Patch screen. */
+ * (a fixture's dimmer channel) for the merge, per universe, and (b) the
+ * fixture-number -> intensity-channel index the command line's
+ * `1 THRU 8 @ 50` resolves against. */
 function syncEnginePatch(): void {
   const fixtures = usePatchStore.getState().fixtures;
   const allFixtures = getAllFixtures();
-  const htpChannels = new Set<number>();
+  const htpChannelsByUniverse = new Map<number, Set<number>>();
 
-  const patchIndex: PatchIndexEntry[] = fixtures.map((instance, index) => {
+  const patchIndex: PatchIndexEntry[] = fixtures.map((instance) => {
     const def = allFixtures.find((f) => f.id === instance.fixtureId);
     const mode = def?.modes[instance.modeIndex];
     let intensityChannel: number | null = null;
     if (mode) {
+      let htpChannels = htpChannelsByUniverse.get(instance.universe);
+      if (!htpChannels) {
+        htpChannels = new Set<number>();
+        htpChannelsByUniverse.set(instance.universe, htpChannels);
+      }
       for (const ch of mode.channels) {
         const channel = instance.address + ch.offset - 1;
         if (ch.type === "dimmer") {
@@ -260,10 +264,17 @@ function syncEnginePatch(): void {
         }
       }
     }
-    return { fixtureNumber: index + 1, universe: PRIMARY_UNIVERSE_ID, intensityChannel };
+    return { fixtureNumber: instance.fixtureNumber, universe: instance.universe, intensityChannel };
   });
 
-  void engineApi.setHtpChannels(PRIMARY_UNIVERSE_ID, [...htpChannels]);
+  for (const [universe, htpChannels] of htpChannelsByUniverse) {
+    void engineApi.setHtpChannels(universe, [...htpChannels]);
+  }
+  // A universe with no patched dimmer channels still needs its HTP set
+  // cleared (e.g. after unpatching the last fixture there).
+  if (!htpChannelsByUniverse.has(PRIMARY_UNIVERSE_ID)) {
+    void engineApi.setHtpChannels(PRIMARY_UNIVERSE_ID, []);
+  }
   void engineApi.setPatchIndex(patchIndex);
 }
 

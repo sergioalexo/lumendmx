@@ -17,7 +17,7 @@ export const useUniverseStatusesStore = create<UniverseStatusesState>((set) => (
     try {
       const all = await dmx.getAllStatuses();
       set({ statuses: Object.fromEntries(all.map((s) => [s.universeId, s])) });
-      void dmx.onUniverseStatusChanged((status) => {
+      await dmx.onUniverseStatusChanged((status) => {
         set((state) => ({ statuses: { ...state.statuses, [status.universeId]: status } }));
       });
     } catch (err) {

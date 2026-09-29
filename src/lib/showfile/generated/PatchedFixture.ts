@@ -4,4 +4,15 @@ export type PatchedFixture = { id: string, fixtureId: string, modeIndex: number,
 /**
  * DMX start address, 1-512.
  */
-address: number, name: string, };
+address: number, name: string, 
+/**
+ * v3: which universe this fixture is patched into. Every fixture was
+ * implicitly universe 1 before Setup could manage more than one (see
+ * `migrate::upgrade_2_to_3`).
+ */
+universe: number, 
+/**
+ * v3: a stable, user-assignable number for the command line's `1 THRU 8`
+ * etc. to reference — replaces Phase 3's "just patch order" placeholder.
+ */
+fixtureNumber: number, invertPan: boolean, invertTilt: boolean, swapPanTilt: boolean, };

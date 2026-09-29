@@ -15,6 +15,7 @@ import { useMidiStore } from "./store/useMidiStore";
 import { useAppUpdateStore } from "./store/useAppUpdateStore";
 import { useShowStore } from "./store/useShowStore";
 import { useUniverseStatusesStore } from "./store/useUniverseStatusesStore";
+import { useUniverseChannelsStore } from "./store/useUniverseChannelsStore";
 
 type MainView = "fixtures" | "cues" | "setup";
 
@@ -24,6 +25,7 @@ function App() {
   const checkForAppUpdate = useAppUpdateStore((s) => s.checkNow);
   const initShow = useShowStore((s) => s.init);
   const initUniverseStatuses = useUniverseStatusesStore((s) => s.init);
+  const initUniverseChannels = useUniverseChannelsStore((s) => s.init);
   const [mainView, setMainView] = useState<MainView>("fixtures");
 
   useEffect(() => {
@@ -32,7 +34,8 @@ function App() {
     void checkForAppUpdate();
     void initShow();
     void initUniverseStatuses();
-  }, [init, initMidi, checkForAppUpdate, initShow, initUniverseStatuses]);
+    void initUniverseChannels();
+  }, [init, initMidi, checkForAppUpdate, initShow, initUniverseStatuses, initUniverseChannels]);
 
   return (
     <div className="flex h-screen flex-col bg-background">
