@@ -190,10 +190,10 @@ fn write_dmx_frame(
     universe: &[u8; UNIVERSE_SIZE],
 ) -> Result<(), std::io::Error> {
     port.set_break()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     thread::sleep(Duration::from_micros(110));
     port.clear_break()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     thread::sleep(Duration::from_micros(16)); // Mark-After-Break
 
     let mut frame = Vec::with_capacity(1 + UNIVERSE_SIZE);
