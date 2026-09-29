@@ -1,6 +1,8 @@
+mod engine;
 mod output;
 mod showfile;
 
+use engine::manager::EngineManager;
 use output::input::DmxInputManager;
 use output::manager::OutputManager;
 use tauri::Manager;
@@ -16,6 +18,11 @@ pub fn run() {
             let manager = OutputManager::new(app.handle().clone());
             app.manage(manager);
             app.manage(DmxInputManager::new());
+
+            let engine = EngineManager::new();
+            engine.start_tick(app.handle().clone());
+            app.manage(engine);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -37,6 +44,13 @@ pub fn run() {
             output::commands::input_start_sacn,
             output::commands::input_stop_sacn,
             output::commands::input_get_sacn_frame,
+            engine::commands::engine_set_htp_channels,
+            engine::commands::engine_set_patch_index,
+            engine::commands::engine_set_channels,
+            engine::commands::engine_get_universe_data,
+            engine::commands::engine_trigger_asset,
+            engine::commands::engine_stop_asset,
+            engine::commands::engine_execute_command,
             showfile::commands::showfile_new,
             showfile::commands::showfile_open,
             showfile::commands::showfile_save,

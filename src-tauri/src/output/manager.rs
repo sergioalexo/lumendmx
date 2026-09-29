@@ -98,6 +98,13 @@ impl OutputManager {
             .collect()
     }
 
+    /// Ids of every universe with a driver configured (whether or not it's
+    /// currently connected) — what the engine tick loop writes merged frames
+    /// into each tick.
+    pub fn universe_ids(&self) -> Vec<u32> {
+        self.universes.lock().unwrap().keys().copied().collect()
+    }
+
     pub fn driver_config(&self, universe_id: u32) -> Option<DriverConfig> {
         self.universes
             .lock()
