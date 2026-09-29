@@ -13,4 +13,10 @@ export type PatchIndexEntry = { fixtureNumber: number, universe: number,
  * The channel `@ value` should drive, if this fixture has a dimmer
  * channel at all.
  */
-intensityChannel: number | null, };
+intensityChannel: number | null, 
+/**
+ * Every other attribute name (e.g. "red", "pan", "gobo") this fixture
+ * has, mapped to its channel — what a preset's `apply` resolves
+ * attribute values against for an arbitrary target fixture (Phase 5).
+ */
+attributeChannels: { [key: string]: number }, };

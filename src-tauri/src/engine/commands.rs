@@ -1,9 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use tauri::State;
 
+use super::groups::Group;
 use super::legacy_playback::{LegacyAsset, LegacyStep};
 use super::manager::{CommandResult, EngineManager, PatchIndexEntry};
+use super::presets::{Preset, PresetFamily};
 
 #[tauri::command]
 pub fn engine_set_htp_channels(engine: State<EngineManager>, universe: u32, channels: Vec<u16>) {
@@ -71,4 +73,75 @@ pub fn engine_stop_asset(engine: State<EngineManager>, id: String) {
 #[tauri::command]
 pub fn engine_execute_command(engine: State<EngineManager>, text: String) -> CommandResult {
     engine.execute_command(&text)
+}
+
+// --- Groups (Phase 5) ---
+
+#[tauri::command]
+pub fn engine_record_group(engine: State<EngineManager>, name: String, fixture_numbers: Vec<u32>) -> u32 {
+    engine.record_group(name, fixture_numbers)
+}
+
+#[tauri::command]
+pub fn engine_list_groups(engine: State<EngineManager>) -> Vec<Group> {
+    engine.list_groups()
+}
+
+#[tauri::command]
+pub fn engine_rename_group(engine: State<EngineManager>, id: u32, name: String) -> Result<(), String> {
+    engine.rename_group(id, name)
+}
+
+#[tauri::command]
+pub fn engine_delete_group(engine: State<EngineManager>, id: u32) {
+    engine.delete_group(id);
+}
+
+#[tauri::command]
+pub fn engine_apply_group_master(engine: State<EngineManager>, id: u32, percent: f32) -> Result<String, String> {
+    let (_ok, message) = engine.apply_group_master(id, percent)?;
+    Ok(message)
+}
+
+// --- Presets (Phase 5) ---
+
+#[tauri::command]
+pub fn engine_record_preset(
+    engine: State<EngineManager>,
+    family: PresetFamily,
+    name: String,
+    fixture_numbers: Vec<u32>,
+    color: Option<String>,
+) -> u32 {
+    engine.record_preset(family, name, &fixture_numbers.into_iter().collect::<HashSet<u32>>(), color)
+}
+
+#[tauri::command]
+pub fn engine_update_preset(
+    engine: State<EngineManager>,
+    id: u32,
+    fixture_numbers: Vec<u32>,
+    color: Option<String>,
+) -> Result<(), String> {
+    engine.update_preset(id, &fixture_numbers.into_iter().collect::<HashSet<u32>>(), color)
+}
+
+#[tauri::command]
+pub fn engine_rename_preset(engine: State<EngineManager>, id: u32, name: String) -> Result<(), String> {
+    engine.rename_preset(id, name)
+}
+
+#[tauri::command]
+pub fn engine_delete_preset(engine: State<EngineManager>, id: u32) {
+    engine.delete_preset(id);
+}
+
+#[tauri::command]
+pub fn engine_list_presets(engine: State<EngineManager>, family: Option<PresetFamily>) -> Vec<Preset> {
+    engine.list_presets(family)
+}
+
+#[tauri::command]
+pub fn engine_apply_preset(engine: State<EngineManager>, id: u32, fixture_numbers: Vec<u32>) -> Result<usize, String> {
+    engine.apply_preset(id, &fixture_numbers.into_iter().collect::<HashSet<u32>>())
 }

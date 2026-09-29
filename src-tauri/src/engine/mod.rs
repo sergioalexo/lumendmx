@@ -3,7 +3,9 @@
 
 pub mod command_line;
 pub mod commands;
+pub mod groups;
 pub mod legacy_playback;
 pub mod manager;
 pub mod merge;
+pub mod presets;
 pub mod state;

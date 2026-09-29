@@ -13,8 +13,10 @@ use tauri::{AppHandle, Emitter, Manager};
 use ts_rs::TS;
 
 use super::command_line::{self, Command};
+use super::groups::{Group, GroupStore};
 use super::legacy_playback::{LegacyAsset, RunningPlayback};
 use super::merge::merge_universe;
+use super::presets::{Preset, PresetFamily, PresetStore};
 use super::state::EngineState;
 use crate::output::manager::OutputManager;
 use crate::output::UNIVERSE_SIZE;
@@ -37,6 +39,11 @@ pub struct PatchIndexEntry {
     /// The channel `@ value` should drive, if this fixture has a dimmer
     /// channel at all.
     pub intensity_channel: Option<u16>,
+    /// Every other attribute name (e.g. "red", "pan", "gobo") this fixture
+    /// has, mapped to its channel — what a preset's `apply` resolves
+    /// attribute values against for an arbitrary target fixture (Phase 5).
+    #[serde(default)]
+    pub attribute_channels: HashMap<String, u16>,
 }
 
 #[derive(Default)]
@@ -69,6 +76,8 @@ pub struct EngineManager {
     playbacks: Arc<Mutex<Vec<RunningPlayback>>>,
     patch_index: Arc<Mutex<Vec<PatchIndexEntry>>>,
     programmer_ctx: Mutex<ProgrammerContext>,
+    groups: Mutex<GroupStore>,
+    presets: Mutex<PresetStore>,
     tick_started: AtomicBool,
 }
 
@@ -79,6 +88,8 @@ impl EngineManager {
             playbacks: Arc::new(Mutex::new(Vec::new())),
             patch_index: Arc::new(Mutex::new(Vec::new())),
             programmer_ctx: Mutex::new(ProgrammerContext::default()),
+            groups: Mutex::new(GroupStore::new()),
+            presets: Mutex::new(PresetStore::new()),
             tick_started: AtomicBool::new(false),
         }
     }
@@ -211,10 +222,11 @@ impl EngineManager {
 
         let known: HashSet<u32> =
             self.patch_index.lock().unwrap().iter().map(|e| e.fixture_number).collect();
+        let group_members = self.groups.lock().unwrap().fixture_numbers_by_id();
         let mut ctx = self.programmer_ctx.lock().unwrap();
 
         let (ok, message) = match command {
-            Command::Select(expr) => match expr.resolve(&known) {
+            Command::Select(expr) => match expr.resolve(&known, &group_members) {
                 Ok(set) => {
                     ctx.selection = set;
                     (true, format!("Selected {} fixture(s)", ctx.selection.len()))
@@ -225,7 +237,7 @@ impl EngineManager {
                 let target = match expr {
                     // "1 THRU 8 @ 50" both selects and sets intensity, like a
                     // real console's command line.
-                    Some(expr) => match expr.resolve(&known) {
+                    Some(expr) => match expr.resolve(&known, &group_members) {
                         Ok(set) => {
                             ctx.selection = set.clone();
                             set
@@ -294,6 +306,119 @@ impl EngineManager {
             format!("Set intensity on {set_count} fixture(s), skipped {skipped} (no dimmer channel or unpatched)")
         };
         (set_count > 0 || fixture_numbers.is_empty(), message)
+    }
+
+    // --- Groups (Phase 5) ---
+
+    pub fn record_group(&self, name: String, fixture_numbers: Vec<u32>) -> u32 {
+        self.groups.lock().unwrap().record(name, fixture_numbers)
+    }
+
+    pub fn list_groups(&self) -> Vec<Group> {
+        self.groups.lock().unwrap().list()
+    }
+
+    pub fn rename_group(&self, id: u32, name: String) -> Result<(), String> {
+        self.groups.lock().unwrap().rename(id, name)
+    }
+
+    pub fn delete_group(&self, id: u32) {
+        self.groups.lock().unwrap().delete(id);
+    }
+
+    /// A "group master": sets every member's intensity to `percent` (0-100),
+    /// the same operation as the command line's `GROUP N @ value`. Not a
+    /// continuously-multiplying scaling layer over whatever else is live —
+    /// see DECISIONS.md for why that's out of scope here.
+    pub fn apply_group_master(&self, id: u32, percent: f32) -> Result<(bool, String), String> {
+        let members: HashSet<u32> = self
+            .groups
+            .lock()
+            .unwrap()
+            .get(id)
+            .ok_or_else(|| format!("No group {id}"))?
+            .fixture_numbers
+            .iter()
+            .copied()
+            .collect();
+        let value = (percent.clamp(0.0, 100.0) / 100.0 * 255.0).round() as u8;
+        Ok(self.apply_intensity(&members, value))
+    }
+
+    // --- Presets (Phase 5) ---
+
+    /// Reads each target fixture's *currently rendered* (post-merge) value
+    /// for every attribute it has, so recording a preset captures what you
+    /// actually see, not just whatever the programmer layer happens to hold.
+    fn capture_attribute_values(&self, fixture_numbers: &HashSet<u32>) -> HashMap<String, f32> {
+        let index = self.patch_index.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        let mut frames: HashMap<u32, [u8; UNIVERSE_SIZE]> = HashMap::new();
+        let mut values: HashMap<String, f32> = HashMap::new();
+
+        let mut entries: Vec<&PatchIndexEntry> =
+            index.iter().filter(|e| fixture_numbers.contains(&e.fixture_number)).collect();
+        entries.sort_by_key(|e| e.fixture_number);
+
+        for entry in entries {
+            let frame = frames.entry(entry.universe).or_insert_with(|| merge_universe(&state, entry.universe));
+            for (attr, &channel) in &entry.attribute_channels {
+                values.entry(attr.clone()).or_insert(frame[(channel - 1) as usize] as f32);
+            }
+        }
+        values
+    }
+
+    pub fn record_preset(
+        &self,
+        family: PresetFamily,
+        name: String,
+        fixture_numbers: &HashSet<u32>,
+        color: Option<String>,
+    ) -> u32 {
+        let values = self.capture_attribute_values(fixture_numbers);
+        self.presets.lock().unwrap().record(family, name, values, color)
+    }
+
+    pub fn update_preset(&self, id: u32, fixture_numbers: &HashSet<u32>, color: Option<String>) -> Result<(), String> {
+        let values = self.capture_attribute_values(fixture_numbers);
+        self.presets.lock().unwrap().update(id, values, color)
+    }
+
+    pub fn rename_preset(&self, id: u32, name: String) -> Result<(), String> {
+        self.presets.lock().unwrap().rename(id, name)
+    }
+
+    pub fn delete_preset(&self, id: u32) {
+        self.presets.lock().unwrap().delete(id);
+    }
+
+    pub fn list_presets(&self, family: Option<PresetFamily>) -> Vec<Preset> {
+        self.presets.lock().unwrap().list(family)
+    }
+
+    /// Applies preset `id` to every fixture in `fixture_numbers` that has a
+    /// channel for one of its attributes. Always looks the preset up fresh by
+    /// id — never caches/copies its values — so updating a preset changes
+    /// what every future apply (including, once Phase 6 exists, a recorded
+    /// cue that references it) actually does.
+    pub fn apply_preset(&self, id: u32, fixture_numbers: &HashSet<u32>) -> Result<usize, String> {
+        let values = {
+            let presets = self.presets.lock().unwrap();
+            presets.get(id).ok_or_else(|| format!("No preset {id}"))?.values.clone()
+        };
+        let index = self.patch_index.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
+        let mut applied = 0;
+        for entry in index.iter().filter(|e| fixture_numbers.contains(&e.fixture_number)) {
+            for (attr, &value) in &values {
+                if let Some(&channel) = entry.attribute_channels.get(attr) {
+                    state.programmer.values.insert((entry.universe, channel), value);
+                    applied += 1;
+                }
+            }
+        }
+        Ok(applied)
     }
 }
 
