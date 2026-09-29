@@ -85,7 +85,7 @@ function swatchColor(mode: FixtureMode, values: Record<number, number>): string 
 }
 
 export function FixturePatchPanel() {
-  const connected = useDmxStore((s) => s.connection.connected);
+  const connected = useDmxStore((s) => s.status.connected);
   const applyPatch = useDmxStore((s) => s.applyPatch);
   const liveChannels = useDmxStore((s) => s.channels);
 

@@ -51,3 +51,33 @@ One line (or a short paragraph) per call made without stopping to ask, per
 - **Default workspaces are name-only stubs** (Programming/Playback/Live
   AI/Patch-Setup tabs with no window layout yet) — the dockable window grid is
   built up as the window types it can hold exist, not invented speculatively now.
+
+## Phase 2 — Multi-universe output engine
+
+- **Enttec Pro Mk2's second universe is explicitly rejected, not guessed at.**
+  There's no physical Pro widget in this project to verify against, and the
+  Mk2's dual-universe port-select framing isn't part of the base documented
+  protocol I could implement with confidence. `EnttecProDriver::write_frame`
+  returns a clear error for `universe_index != 0` rather than silently
+  emitting unverified bytes at real hardware. See HARDWARE_CHECKS.md.
+- **DMX input receives and decodes but doesn't merge into output yet.**
+  BUILD_PLAN Phase 2 asks for input "with a merge option," but Phase 3 owns
+  building the real HTP/LTP merge engine. Wiring a second, ad-hoc merge into
+  `runner::UniverseOutput` — the same code path the safety-critical FTDI
+  driver's frame loop runs through — this late in an already-large phase was
+  judged too risky for the payoff; the merge step is Phase 3's to build once,
+  properly. See docs/OUTPUT.md.
+- **sACN input listeners bind with `SO_REUSEADDR` via the `socket2` crate**
+  (std's `UdpSocket` can't set this before bind), so more than one universe's
+  multicast listener can share port 5568, which any real multi-universe sACN
+  receiver needs.
+- **Enum JSON field casing:** serde's `rename_all` on an enum only renames
+  *variant* names, not the fields inside struct-like variants — each variant
+  of `DriverConfig`/`SacnDestination` needed its own
+  `#[serde(rename_all = "camelCase")]` to keep field names consistent with the
+  rest of the schema. Caught by a real test failure ("missing field
+  `rate_hz`"), not by inspection.
+- **Show-file schema v2:** `UniverseConfig.outputPort: Option<String>` became
+  `driver: DriverConfig` (tagged enum covering Null/FTDI/EnttecPro/ArtNet/
+  sACN), with a migration step and tests for both the "had an FTDI port" and
+  "had no port" cases.

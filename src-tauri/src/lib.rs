@@ -1,8 +1,8 @@
-mod commands;
-mod dmx;
+mod output;
 mod showfile;
 
-use dmx::DmxEngine;
+use output::input::DmxInputManager;
+use output::manager::OutputManager;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -13,19 +13,30 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let engine = DmxEngine::new(app.handle().clone());
-            app.manage(engine);
+            let manager = OutputManager::new(app.handle().clone());
+            app.manage(manager);
+            app.manage(DmxInputManager::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::list_serial_ports,
-            commands::connect_serial_port,
-            commands::disconnect_serial_port,
-            commands::connection_status,
-            commands::update_universe,
-            commands::get_universe,
-            commands::set_blackout,
-            commands::get_blackout,
+            output::commands::list_serial_ports,
+            output::commands::output_configure_universe,
+            output::commands::output_remove_universe,
+            output::commands::output_update_universe_data,
+            output::commands::output_get_universe_data,
+            output::commands::output_universe_status,
+            output::commands::output_all_statuses,
+            output::commands::output_set_blackout,
+            output::commands::output_get_blackout,
+            output::commands::output_get_universe_config,
+            output::commands::output_driver_defaults,
+            output::commands::output_driver_label,
+            output::commands::output_discover_artnet_nodes,
+            output::commands::input_start_artnet,
+            output::commands::input_get_artnet_frame,
+            output::commands::input_start_sacn,
+            output::commands::input_stop_sacn,
+            output::commands::input_get_sacn_frame,
             showfile::commands::showfile_new,
             showfile::commands::showfile_open,
             showfile::commands::showfile_save,

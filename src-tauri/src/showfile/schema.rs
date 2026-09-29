@@ -11,9 +11,11 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::output::config::DriverConfig;
+
 /// Bump this whenever `ShowFile`'s on-disk shape changes, and add an upgrade
 /// step in `migrate.rs` from the previous version.
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -21,10 +23,10 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 pub struct UniverseConfig {
     pub id: u32,
     pub name: String,
-    /// Serial port name for the FTDI output driver (e.g. `"COM9"`). Other
-    /// driver kinds (Enttec, Art-Net, sACN) arrive in Phase 2 and will extend
-    /// this struct with a `driver` field plus a migration step.
-    pub output_port: Option<String>,
+    /// v2: replaced the single FTDI-only `outputPort: Option<String>` with a
+    /// driver-tagged config supporting FTDI/Enttec Pro/Art-Net/sACN/none
+    /// (see `migrate::upgrade_1_to_2`).
+    pub driver: DriverConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -128,7 +130,7 @@ impl ShowFile {
             universes: vec![UniverseConfig {
                 id: 1,
                 name: "Universe 1".to_string(),
-                output_port: None,
+                driver: DriverConfig::default(),
             }],
             patch: Vec::new(),
             workspaces: default_workspaces(),

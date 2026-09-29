@@ -1,10 +1,19 @@
 import { create } from "zustand";
 import * as dmx from "../lib/dmx";
-import type { ConnectionStatus } from "../lib/dmx";
+import type { UniverseStatus } from "../lib/showfile/generated";
+import { useShowStore } from "./useShowStore";
+
+/** The show's first universe, which the top bar's quick connect/blackout
+ * controls operate on. Additional universes are managed from Setup. */
+export const PRIMARY_UNIVERSE_ID = 1;
+
+function idleStatus(): UniverseStatus {
+  return { universeId: PRIMARY_UNIVERSE_ID, connected: false, error: null, framesPerSec: 0 };
+}
 
 interface DmxStore {
   channels: Uint8Array;
-  connection: ConnectionStatus;
+  status: UniverseStatus;
   blackout: boolean;
   ports: dmx.SerialPortDescriptor[];
   ready: boolean;
@@ -23,27 +32,29 @@ interface DmxStore {
 
 export const useDmxStore = create<DmxStore>((set, get) => ({
   channels: new Uint8Array(dmx.UNIVERSE_SIZE),
-  connection: { connected: false, port: null, error: null },
+  status: idleStatus(),
   blackout: false,
   ports: [],
   ready: false,
 
   init: async () => {
     try {
-      const [universe, connection, blackout, ports] = await Promise.all([
-        dmx.getUniverse(),
-        dmx.getConnectionStatus(),
+      const [universe, status, blackout, ports] = await Promise.all([
+        dmx.getUniverseData(PRIMARY_UNIVERSE_ID).catch(() => Array(dmx.UNIVERSE_SIZE).fill(0)),
+        dmx.getUniverseStatus(PRIMARY_UNIVERSE_ID),
         dmx.getBlackout(),
         dmx.listSerialPorts(),
       ]);
       set({
         channels: Uint8Array.from(universe),
-        connection,
+        status: status ?? idleStatus(),
         blackout,
         ports,
         ready: true,
       });
-      dmx.onConnectionChanged((status) => set({ connection: status }));
+      void dmx.onUniverseStatusChanged((s) => {
+        if (s.universeId === PRIMARY_UNIVERSE_ID) set({ status: s });
+      });
     } catch (err) {
       // Expected when the UI is opened outside the Tauri runtime (e.g. a plain
       // browser preview during frontend development) -- the Rust backend simply
@@ -58,11 +69,15 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   },
 
   connect: async (portName: string) => {
-    await dmx.connectSerialPort(portName);
+    await useShowStore.getState().setUniverseDriver(PRIMARY_UNIVERSE_ID, {
+      kind: "ftdi",
+      port: portName,
+      rateHz: 30,
+    });
   },
 
   disconnect: async () => {
-    await dmx.disconnectSerialPort();
+    await useShowStore.getState().setUniverseDriver(PRIMARY_UNIVERSE_ID, { kind: "null" });
   },
 
   toggleBlackout: async () => {
@@ -73,7 +88,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
 
   applyFull: async (next) => {
     const channels = next instanceof Uint8Array ? next : Uint8Array.from(next);
-    await dmx.updateUniverse(channels);
+    await dmx.updateUniverseData(PRIMARY_UNIVERSE_ID, channels);
     set({ channels });
   },
 
@@ -85,7 +100,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
         channels[idx] = Math.max(0, Math.min(255, value));
       }
     }
-    await dmx.updateUniverse(channels);
+    await dmx.updateUniverseData(PRIMARY_UNIVERSE_ID, channels);
     set({ channels });
   },
 }));
