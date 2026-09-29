@@ -11,6 +11,7 @@ import { cn } from "./lib/utils";
 import { useDmxStore } from "./store/useDmxStore";
 import { useMidiStore } from "./store/useMidiStore";
 import { useAppUpdateStore } from "./store/useAppUpdateStore";
+import { useShowStore } from "./store/useShowStore";
 
 type MainView = "fixtures" | "cues";
 
@@ -18,13 +19,15 @@ function App() {
   const init = useDmxStore((s) => s.init);
   const initMidi = useMidiStore((s) => s.init);
   const checkForAppUpdate = useAppUpdateStore((s) => s.checkNow);
+  const initShow = useShowStore((s) => s.init);
   const [mainView, setMainView] = useState<MainView>("fixtures");
 
   useEffect(() => {
     void init();
     void initMidi();
     void checkForAppUpdate();
-  }, [init, initMidi, checkForAppUpdate]);
+    void initShow();
+  }, [init, initMidi, checkForAppUpdate, initShow]);
 
   return (
     <div className="flex h-screen flex-col bg-background">

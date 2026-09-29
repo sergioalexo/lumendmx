@@ -91,7 +91,9 @@ pub struct LegacyAsset {
     pub loop_: bool,
     /// "ai" | "manual"
     pub source: String,
-    pub created_at: i64,
+    /// Milliseconds since epoch (matches JS `Date.now()`); `f64` rather than
+    /// an integer type so ts-rs maps it to a plain `number`, not `bigint`.
+    pub created_at: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

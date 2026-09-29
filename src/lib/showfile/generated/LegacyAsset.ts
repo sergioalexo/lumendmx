@@ -9,4 +9,9 @@ kind: string, steps: Array<LegacyStep>, loop: boolean,
 /**
  * "ai" | "manual"
  */
-source: string, createdAt: bigint, };
+source: string, 
+/**
+ * Milliseconds since epoch (matches JS `Date.now()`); `f64` rather than
+ * an integer type so ts-rs maps it to a plain `number`, not `bigint`.
+ */
+createdAt: number, };
