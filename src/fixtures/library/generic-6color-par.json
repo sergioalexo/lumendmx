@@ -28,14 +28,35 @@
         { "offset": 5, "type": "white", "label": "White" },
         { "offset": 6, "type": "amber", "label": "Amber" },
         { "offset": 7, "type": "uv", "label": "UV" },
-        { "offset": 8, "type": "strobe", "label": "Strobe" },
+        {
+          "offset": 8,
+          "type": "strobe",
+          "label": "Strobe",
+          "capabilities": [
+            { "dmxRange": [0, 0], "type": "nofunction", "label": "No strobe (solid on)" },
+            {
+              "dmxRange": [1, 255],
+              "type": "strobe",
+              "label": "Strobe, slow to fast",
+              "physicalRange": { "min": 0, "max": 20, "unit": "hz" }
+            }
+          ]
+        },
         {
           "offset": 9,
           "type": "function",
           "label": "Function",
           "manualRange": [0, 50],
           "defaultValue": 0,
-          "notes": "000-050 = plain CH1-CH8 DMX control. 051-100 = 8 built-in color presets (selected by CH10). 101-150 = jump chase. 151-200 = gradient chase. 201-250 = pulse chase. 251-255 = sound-reactive. Stay in 0-50 to keep the fixture responding to the other channels."
+          "notes": "Stay in 0-50 to keep the fixture responding to the other channels.",
+          "capabilities": [
+            { "dmxRange": [0, 50], "type": "function", "label": "Manual DMX control (CH1-CH8)" },
+            { "dmxRange": [51, 100], "type": "function", "label": "8 built-in color presets (selected by CH10)" },
+            { "dmxRange": [101, 150], "type": "function", "label": "Jump chase" },
+            { "dmxRange": [151, 200], "type": "function", "label": "Gradient chase" },
+            { "dmxRange": [201, 250], "type": "function", "label": "Pulse chase" },
+            { "dmxRange": [251, 255], "type": "function", "label": "Sound-reactive" }
+          ]
         },
         {
           "offset": 10,
