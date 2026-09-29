@@ -1,11 +1,11 @@
 import { create } from "zustand";
 import * as dmx from "../lib/dmx";
+import * as engine from "../lib/engine";
+import { PRIMARY_UNIVERSE_ID } from "../lib/constants";
 import type { UniverseStatus } from "../lib/showfile/generated";
 import { useShowStore } from "./useShowStore";
 
-/** The show's first universe, which the top bar's quick connect/blackout
- * controls operate on. Additional universes are managed from Setup. */
-export const PRIMARY_UNIVERSE_ID = 1;
+export { PRIMARY_UNIVERSE_ID };
 
 function idleStatus(): UniverseStatus {
   return { universeId: PRIMARY_UNIVERSE_ID, connected: false, error: null, framesPerSec: 0 };
@@ -40,7 +40,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   init: async () => {
     try {
       const [universe, status, blackout, ports] = await Promise.all([
-        dmx.getUniverseData(PRIMARY_UNIVERSE_ID).catch(() => Array(dmx.UNIVERSE_SIZE).fill(0)),
+        engine.getUniverseData(PRIMARY_UNIVERSE_ID).catch(() => Array(dmx.UNIVERSE_SIZE).fill(0)),
         dmx.getUniverseStatus(PRIMARY_UNIVERSE_ID),
         dmx.getBlackout(),
         dmx.listSerialPorts(),
@@ -54,6 +54,13 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
       });
       void dmx.onUniverseStatusChanged((s) => {
         if (s.universeId === PRIMARY_UNIVERSE_ID) set({ status: s });
+      });
+      // The engine pushes the merged universe at ~20Hz (BUILD_PLAN Phase 3);
+      // that's the live display source of truth now, not a raw output read.
+      void engine.onUniverseFrame((frame) => {
+        if (frame.universeId === PRIMARY_UNIVERSE_ID) {
+          set({ channels: Uint8Array.from(frame.channels) });
+        }
       });
     } catch (err) {
       // Expected when the UI is opened outside the Tauri runtime (e.g. a plain
@@ -88,19 +95,19 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
 
   applyFull: async (next) => {
     const channels = next instanceof Uint8Array ? next : Uint8Array.from(next);
-    await dmx.updateUniverseData(PRIMARY_UNIVERSE_ID, channels);
-    set({ channels });
+    const values: Record<number, number> = {};
+    for (let i = 0; i < channels.length; i++) values[i + 1] = channels[i];
+    await engine.setChannels(PRIMARY_UNIVERSE_ID, values);
   },
 
   applyPatch: async (patch) => {
-    const channels = new Uint8Array(get().channels);
+    const values: Record<number, number> = {};
     for (const [ch, value] of Object.entries(patch)) {
-      const idx = Number(ch) - 1;
-      if (idx >= 0 && idx < dmx.UNIVERSE_SIZE) {
-        channels[idx] = Math.max(0, Math.min(255, value));
+      const idx = Number(ch);
+      if (idx >= 1 && idx <= dmx.UNIVERSE_SIZE) {
+        values[idx] = Math.max(0, Math.min(255, value));
       }
     }
-    await dmx.updateUniverseData(PRIMARY_UNIVERSE_ID, channels);
-    set({ channels });
+    await engine.setChannels(PRIMARY_UNIVERSE_ID, values);
   },
 }));

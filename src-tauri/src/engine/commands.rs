@@ -28,6 +28,7 @@ pub fn engine_get_universe_data(engine: State<EngineManager>, universe: u32) -> 
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LegacyStepDto {
     /// channel (1-512, as a string key, matching the show file's LegacyStep) -> value.
     pub channels: HashMap<String, u8>,
@@ -44,7 +45,7 @@ pub fn engine_trigger_asset(
     id: String,
     universe: u32,
     steps: Vec<LegacyStepDto>,
-    loop_: bool,
+    looped: bool,
 ) -> Result<(), String> {
     let steps = steps
         .into_iter()
@@ -58,7 +59,7 @@ pub fn engine_trigger_asset(
         })
         .collect::<Result<Vec<LegacyStep>, String>>()?;
 
-    engine.trigger_asset(id, universe, LegacyAsset { steps, loop_ });
+    engine.trigger_asset(id, universe, LegacyAsset { steps, loop_: looped });
     Ok(())
 }
 

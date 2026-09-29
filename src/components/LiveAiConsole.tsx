@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useDmxStore } from "../store/useDmxStore";
 import { useAiConfigStore } from "../store/useAiConfigStore";
 import { createAiAdapter, buildSystemPrompt, sequenceToAsset } from "../lib/ai/ai-service";
-import { AssetRunner } from "../lib/chaseEngine";
+import * as engineApi from "../lib/engine";
+import { PRIMARY_UNIVERSE_ID } from "../lib/constants";
 
 interface LogEntry {
   id: string;
@@ -39,13 +40,13 @@ export function LiveAiConsole() {
         userPrompt: command,
       });
       const asset = sequenceToAsset(sequence, sequence.loop ? "chase" : "scene");
-
-      const runner = new AssetRunner(
-        asset,
-        (channel) => useDmxStore.getState().channels[channel - 1] ?? 0,
-        (patch) => void useDmxStore.getState().applyPatch(patch),
+      const liveAiLayerId = `live-ai-${crypto.randomUUID()}`;
+      await engineApi.triggerAsset(
+        liveAiLayerId,
+        PRIMARY_UNIVERSE_ID,
+        engineApi.legacyAssetToSteps(asset),
+        asset.loop,
       );
-      runner.start();
 
       pushLog({ text: `applied "${asset.name}"`, kind: "ok" });
     } catch (err) {

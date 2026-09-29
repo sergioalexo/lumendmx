@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { LightAsset } from "../lib/types";
-import { AssetRunner } from "../lib/chaseEngine";
-import { useDmxStore } from "./useDmxStore";
+import * as engineApi from "../lib/engine";
+import { PRIMARY_UNIVERSE_ID } from "../lib/constants";
 
 const STORAGE_KEY = "lumendmx.library.v1";
 
@@ -30,8 +30,6 @@ interface LibraryStore {
   replaceAll: (assets: LightAsset[]) => void;
 }
 
-const runners = new Map<string, AssetRunner>();
-
 export const useLibraryStore = create<LibraryStore>((set, get) => ({
   assets: loadAssets(),
   activeAssetIds: new Set(),
@@ -49,22 +47,15 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     set({ assets });
   },
 
+  /** Runs a Scene/Chase/FX as a frame-accurate engine playback layer (see
+   * engine::legacy_playback), not a JS timer — two triggered assets touching
+   * the same channel now go through the same HTP/LTP merge as everything
+   * else instead of racing to call `applyPatch` last. */
   trigger: (id) => {
     const asset = get().assets.find((a) => a.id === id);
     if (!asset) return;
 
-    get().stop(id);
-
-    const dmx = useDmxStore.getState();
-    const runner = new AssetRunner(
-      asset,
-      (channel) => dmx.channels[channel - 1] ?? 0,
-      (patch) => {
-        void useDmxStore.getState().applyPatch(patch);
-      },
-    );
-    runners.set(id, runner);
-    runner.start();
+    void engineApi.triggerAsset(id, PRIMARY_UNIVERSE_ID, engineApi.legacyAssetToSteps(asset), asset.loop);
 
     const activeAssetIds = new Set(get().activeAssetIds);
     activeAssetIds.add(id);
@@ -72,11 +63,7 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   },
 
   stop: (id) => {
-    const runner = runners.get(id);
-    if (runner) {
-      runner.stop();
-      runners.delete(id);
-    }
+    void engineApi.stopAsset(id);
     if (get().activeAssetIds.has(id)) {
       const activeAssetIds = new Set(get().activeAssetIds);
       activeAssetIds.delete(id);
