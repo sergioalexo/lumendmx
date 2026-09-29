@@ -17,7 +17,7 @@ pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct UniverseConfig {
     pub id: u32,
     pub name: String,
@@ -29,7 +29,7 @@ pub struct UniverseConfig {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct PatchedFixture {
     pub id: String,
     pub fixture_id: String,
@@ -41,7 +41,7 @@ pub struct PatchedFixture {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct Workspace {
     pub id: String,
     pub name: String,
@@ -49,7 +49,7 @@ pub struct Workspace {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct ShowSettings {
     pub output_rate_hz: u32,
     pub default_fade_ms: u32,
@@ -68,7 +68,7 @@ impl Default for ShowSettings {
 /// `LightAsset`/`DmxStep` from `src/lib/types.ts`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct LegacyStep {
     /// Channel (as a string, 1-512) -> value (0-255). Unlisted channels are
     /// left untouched. Stored as a string-keyed map because that's how
@@ -80,7 +80,7 @@ pub struct LegacyStep {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct LegacyAsset {
     pub id: String,
     pub name: String,
@@ -96,7 +96,7 @@ pub struct LegacyAsset {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct ShowFile {
     pub schema_version: u32,
     pub id: String,
@@ -151,7 +151,7 @@ fn default_workspaces() -> Vec<Workspace> {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/lib/showfile/generated.ts")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
 pub struct RecentShowEntry {
     pub path: String,
     pub name: String,
