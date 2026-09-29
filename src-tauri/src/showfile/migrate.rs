@@ -1,4 +1,4 @@
-//! Upgrades an on-disk `.lumen` JSON document (any past `schema_version`) to
+//! Upgrades an on-disk `.lumen` JSON document (any past `schemaVersion`) to
 //! the current `ShowFile` shape.
 //!
 //! To add a new version: bump `CURRENT_SCHEMA_VERSION` in `schema.rs`, add an
@@ -10,12 +10,10 @@ use serde_json::Value;
 
 use super::schema::{ShowFile, CURRENT_SCHEMA_VERSION};
 
-pub fn migrate(mut raw: Value) -> Result<ShowFile, String> {
-    let obj = raw
-        .as_object_mut()
-        .ok_or_else(|| "Show file is not a JSON object".to_string())?;
-
-    let version = obj
+pub fn migrate(raw: Value) -> Result<ShowFile, String> {
+    let version = raw
+        .as_object()
+        .ok_or_else(|| "Show file is not a JSON object".to_string())?
         .get("schemaVersion")
         .and_then(Value::as_u64)
         .unwrap_or(0) as u32;
@@ -34,13 +32,17 @@ pub fn migrate(mut raw: Value) -> Result<ShowFile, String> {
         value = upgrade_0_to_1(value);
         current_version = 1;
     }
+    if current_version == 1 {
+        value = upgrade_1_to_2(value);
+        current_version = 2;
+    }
 
     debug_assert_eq!(current_version, CURRENT_SCHEMA_VERSION);
 
     serde_json::from_value(value).map_err(|e| format!("Failed to parse show file: {e}"))
 }
 
-/// Version 0 is "no `schema_version` field at all" — either a hand-written
+/// Version 0 is "no `schemaVersion` field at all" — either a hand-written
 /// test fixture or, in the future, genuinely pre-showfile data. Fills in every
 /// field `ShowFile` requires with sensible defaults, keeping whatever the
 /// input already had.
@@ -59,6 +61,39 @@ fn upgrade_0_to_1(value: Value) -> Value {
     }
     obj.insert("schemaVersion".to_string(), Value::from(1));
 
+    Value::Object(obj)
+}
+
+/// v1 -> v2: each `UniverseConfig` traded its FTDI-only `outputPort:
+/// Option<String>` for a driver-tagged `driver: DriverConfig` (Phase 2, adding
+/// Enttec Pro/Art-Net/sACN). An FTDI port becomes `{kind:"ftdi", port,
+/// rateHz:30}`; no port becomes `{kind:"null"}`.
+fn upgrade_1_to_2(value: Value) -> Value {
+    let mut obj = match value {
+        Value::Object(o) => o,
+        _ => serde_json::Map::new(),
+    };
+
+    if let Some(Value::Array(universes)) = obj.get_mut("universes") {
+        for universe in universes.iter_mut() {
+            if let Value::Object(u) = universe {
+                if u.contains_key("driver") {
+                    continue;
+                }
+                let driver = match u.remove("outputPort") {
+                    Some(Value::String(port)) => serde_json::json!({
+                        "kind": "ftdi",
+                        "port": port,
+                        "rateHz": 30,
+                    }),
+                    _ => serde_json::json!({ "kind": "null" }),
+                };
+                u.insert("driver".to_string(), driver);
+            }
+        }
+    }
+
+    obj.insert("schemaVersion".to_string(), Value::from(2));
     Value::Object(obj)
 }
 
@@ -96,6 +131,45 @@ mod tests {
         assert_eq!(migrated.patch.len(), 1);
         assert_eq!(migrated.patch[0].address, 1);
         assert_eq!(migrated.settings.output_rate_hz, 30);
+    }
+
+    /// A realistic v1 file (as Phase 1's `showfile_save` would have written
+    /// one): every `ShowFile` field present, `universes[].outputPort` in the
+    /// old shape.
+    fn v1_fixture(output_port: Value) -> Value {
+        serde_json::json!({
+            "schemaVersion": 1,
+            "id": "show-1",
+            "name": "Old Show",
+            "createdAt": "2026-01-01T00:00:00Z",
+            "modifiedAt": "2026-01-01T00:00:00Z",
+            "universes": [
+                { "id": 1, "name": "Universe 1", "outputPort": output_port }
+            ],
+            "patch": [],
+            "workspaces": [],
+            "settings": { "outputRateHz": 30, "defaultFadeMs": 0 },
+            "legacyAssets": [],
+        })
+    }
+
+    #[test]
+    fn v1_ftdi_output_port_becomes_a_driver_config() {
+        let migrated = migrate(v1_fixture(Value::String("COM9".to_string()))).unwrap();
+        assert_eq!(migrated.schema_version, 2);
+        match &migrated.universes[0].driver {
+            crate::output::config::DriverConfig::Ftdi { port, rate_hz } => {
+                assert_eq!(port.as_deref(), Some("COM9"));
+                assert_eq!(*rate_hz, 30);
+            }
+            other => panic!("expected Ftdi driver, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn v1_unset_output_port_becomes_null_driver() {
+        let migrated = migrate(v1_fixture(Value::Null)).unwrap();
+        assert_eq!(migrated.universes[0].driver, crate::output::config::DriverConfig::Null);
     }
 
     #[test]
