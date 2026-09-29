@@ -204,3 +204,91 @@ One line (or a short paragraph) per call made without stopping to ask, per
   name. Real thumbnails (e.g. a gobo image, a position indicator) need
   per-family rendering that isn't worth building before Phase 6 gives
   presets an actual consumer.
+
+## Phase 6 — Cuelists, playback
+
+- **Cue playbacks share `EngineState.playbacks` with legacy Scene/Chase/FX
+  assets**, keyed by a `"cue-playback-{id}"` prefix instead of a second merge
+  path — both go through the exact same HTP/LTP logic in `merge.rs`. Adding
+  a parallel "cue layer" concept would have meant either duplicating the
+  merge rules or making `merge_universe` aware of two different layer
+  sources; reusing the one abstraction it already has was simpler and
+  already proven correct by Phase 3's tests.
+- **Override cuelists get a priority tier (`OVERRIDE_PRIORITY_BASE =
+  1_000_000_000`), not a special merge case.** This falls out of the same
+  "priority determines LTP" rule everything else uses — an override cuelist
+  just starts its priority counter a billion higher than standard playbacks,
+  still strictly below the programmer's `i64::MAX`.
+- **The command line's `RECORD CUE`/`UPDATE`/`DELETE CUE`/`NEXT`/`PREV` now
+  execute for real** (they only parsed through Phase 3-5). They operate
+  against a "current cuelist" (`engine_set_current_cuelist`) the Cuelists tab
+  sets when you open one — there's still no cross-tab selection state (see
+  Phase 5's decision above), so this is the smallest thing that makes the
+  command line's cue syntax actually do something, without inventing a
+  bigger selection-sharing mechanism this phase doesn't need elsewhere.
+- **`UPDATE` re-captures whichever cue `RECORD CUE` last touched.** The
+  grammar (designed in Phase 3, before cuelists existed) gives `UPDATE` no
+  number of its own — `exact(1, Command::UpdateCue)`. Rather than change a
+  grammar an earlier phase already committed to and unit-tested, `UPDATE`
+  tracks the last-recorded cue number per `ProgrammerContext`.
+- **`COPY`/`MOVE` still don't execute.** Same root cause as `UPDATE`: the
+  existing grammar parses them with zero arguments, so there's no target cue
+  number to copy/move to. Inventing new syntax for this (e.g. `COPY 1 TO 2`)
+  wasn't specified by anything this project has already committed to, and
+  guessing wrong would mean redoing both the parser and its existing passing
+  tests. Left as a clear "not implemented" error rather than a silent no-op
+  or a guessed syntax.
+- **`RECORD CUE`'s fade time comes from the last `TIME n` command**, applied
+  to both fade-in and fade-out — the grammar has no separate in/out syntax
+  (`TIME` takes one number). This is also what finally gives `TIME` an
+  effect; Phase 3 introduced it as a stored-but-inert value specifically
+  pending this.
+- **A playback's `current_cue_number` is polled (`PlaybackBar` on a 250ms
+  interval), not pushed as an event.** Every other piece of the UI that
+  needs the engine's live output (universe frames, universe/channel status)
+  has a `listen`-based push event; playback status doesn't get one this
+  phase. A 250ms-polled fader/cue readout is unnecessary for a phase whose
+  actual complexity was the engine model itself; adding a new
+  `engine://...` event class is a small, low-risk follow-up if playback UI
+  responsiveness turns out to matter later.
+- **Playback bar covers fader modes and Flash; pages/rate-master/main-
+  playback-GO-BACK-PAUSE-RELEASE-ALL do not exist.** `FaderMode` (Intensity
+  Master / Crossfade, `engine_playback_set_fader_mode`) and a per-slot Flash
+  button (bump to full while held, restore on release — a frontend-only
+  fader manipulation, no new engine state) are real, working per-slot
+  controls, since BUILD_PLAN names both explicitly. A "rate" fader mode
+  (playback speed, distinct from a crossfade position) has no defined
+  meaning yet outside a Chase's BPM, so it wasn't invented. Paged banks (20+
+  pages) and a distinct "main playback" fader with a global RELEASE ALL are
+  real UI infrastructure BUILD_PLAN also asks for that a single scrollable
+  row of slots doesn't provide — deferred as genuinely unbuilt, not silently
+  dropped; see `PlaybackBar`'s own doc comment.
+- **Submaster cuelists have no GO/cue-stepping UI**; `create_playback` just
+  puts them on cue 0 (tracked) immediately and the fader scales that.
+  Building a distinct "submaster" playback slot UI (vs. the standard
+  GO/Back/Release row `PlaybackBar` shows for every kind) is deferred —
+  the standard controls simply don't do much for a kind that has only one
+  effective state, which is an acceptable rough edge, not a broken feature.
+- **Timecode cuelists behave exactly like Standard (manual GO only).**
+  Nothing drives playback from an external clock — LTC/MTC input is
+  explicitly Phase 8's scope, not guessed at here.
+- **`Cue.delay_in_ms` and `Cue.mark` are modeled but not acted on.** Both
+  fields exist on `Cue` and cross the Tauri boundary via `CueDto`, but
+  nothing currently sets `delay_in_ms` to a non-zero value (no UI field for
+  it) or reads it in `PlaybackRuntime::go` (a cue's fade always starts
+  immediately), and `mark` (move-in-black) has no UI checkbox and no engine
+  effect — `cues.rs`'s own doc comment already flagged this. Per-attribute
+  timing (different fade times for different channels within one cue) and
+  follow/wait/auto-follow/links/loops between cues aren't modeled at all.
+  All of these are genuine, real-timing features, not stubs that fake
+  correctness — they're left as explicit gaps rather than a half-working
+  approximation, since BUILD_PLAN's own "done when" for this phase (a
+  20-cue tracking cuelist plays back correctly, a chase follows tapped BPM)
+  doesn't require them and they're each substantial enough to deserve their
+  own real design pass rather than a rushed addition here.
+- **The "Triggers" tab is the renamed Phase 3/4 `TriggerGrid`** (legacy
+  Scene/Chase/FX one-shot triggers), kept as its own tab distinct from the
+  new "Cuelists" tab rather than merged into it — they're different data
+  models (`LightAsset` vs. `Cuelist`/`Cue`) with different lifecycles, and
+  conflating them in one screen would have been more confusing than two
+  clearly-named tabs.

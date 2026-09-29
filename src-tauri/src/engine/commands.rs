@@ -2,9 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use tauri::State;
 
+use super::cues::CuelistKind;
 use super::groups::Group;
 use super::legacy_playback::{LegacyAsset, LegacyStep};
-use super::manager::{CommandResult, EngineManager, PatchIndexEntry};
+use super::manager::{CommandResult, CuelistDto, EngineManager, PatchIndexEntry, PlaybackStatus};
+use super::playback::FaderMode;
 use super::presets::{Preset, PresetFamily};
 
 #[tauri::command]
@@ -144,4 +146,125 @@ pub fn engine_list_presets(engine: State<EngineManager>, family: Option<PresetFa
 #[tauri::command]
 pub fn engine_apply_preset(engine: State<EngineManager>, id: u32, fixture_numbers: Vec<u32>) -> Result<usize, String> {
     engine.apply_preset(id, &fixture_numbers.into_iter().collect::<HashSet<u32>>())
+}
+
+// --- Cuelists and cues (Phase 6) ---
+
+#[tauri::command]
+pub fn engine_create_cuelist(engine: State<EngineManager>, name: String, kind: CuelistKind, tracking: bool) -> u32 {
+    engine.create_cuelist(name, kind, tracking)
+}
+
+#[tauri::command]
+pub fn engine_list_cuelists(engine: State<EngineManager>) -> Vec<CuelistDto> {
+    engine.list_cuelists()
+}
+
+#[tauri::command]
+pub fn engine_delete_cuelist(engine: State<EngineManager>, id: u32) {
+    engine.delete_cuelist(id);
+}
+
+#[tauri::command]
+pub fn engine_rename_cuelist(engine: State<EngineManager>, id: u32, name: String) -> Result<(), String> {
+    engine.rename_cuelist(id, name)
+}
+
+#[tauri::command]
+pub fn engine_set_cuelist_tracking(engine: State<EngineManager>, id: u32, tracking: bool) -> Result<(), String> {
+    engine.set_cuelist_tracking(id, tracking)
+}
+
+#[tauri::command]
+pub fn engine_set_current_cuelist(engine: State<EngineManager>, id: Option<u32>) {
+    engine.set_current_cuelist(id);
+}
+
+#[tauri::command]
+pub fn engine_record_cue(
+    engine: State<EngineManager>,
+    cuelist_id: u32,
+    number: f64,
+    name: String,
+    fixture_numbers: Vec<u32>,
+    fade_in_ms: f64,
+    fade_out_ms: f64,
+) -> Result<(), String> {
+    engine.record_cue(
+        cuelist_id,
+        number,
+        name,
+        &fixture_numbers.into_iter().collect::<HashSet<u32>>(),
+        fade_in_ms,
+        fade_out_ms,
+    )
+}
+
+#[tauri::command]
+pub fn engine_delete_cue(engine: State<EngineManager>, cuelist_id: u32, number: f64) -> Result<(), String> {
+    engine.delete_cue(cuelist_id, number)
+}
+
+#[tauri::command]
+pub fn engine_set_cue_preset_reference(
+    engine: State<EngineManager>,
+    cuelist_id: u32,
+    cue_number: f64,
+    fixture_number: u32,
+    attribute: String,
+    preset_id: u32,
+) -> Result<(), String> {
+    engine.set_cue_preset_reference(cuelist_id, cue_number, fixture_number, attribute, preset_id)
+}
+
+#[tauri::command]
+pub fn engine_set_chase_tempo(engine: State<EngineManager>, cuelist_id: u32, bpm: f32) -> Result<(), String> {
+    engine.set_chase_tempo(cuelist_id, bpm)
+}
+
+// --- Playbacks (Phase 6) ---
+
+#[tauri::command]
+pub fn engine_create_playback(engine: State<EngineManager>, cuelist_id: u32) -> Result<u32, String> {
+    engine.create_playback(cuelist_id)
+}
+
+#[tauri::command]
+pub fn engine_delete_playback(engine: State<EngineManager>, id: u32) {
+    engine.delete_playback(id);
+}
+
+#[tauri::command]
+pub fn engine_list_playbacks(engine: State<EngineManager>) -> Vec<PlaybackStatus> {
+    engine.list_playbacks()
+}
+
+#[tauri::command]
+pub fn engine_playback_go(engine: State<EngineManager>, id: u32) -> Result<(), String> {
+    engine.playback_go(id)
+}
+
+#[tauri::command]
+pub fn engine_playback_go_back(engine: State<EngineManager>, id: u32) -> Result<(), String> {
+    engine.playback_go_back(id)
+}
+
+#[tauri::command]
+pub fn engine_playback_release(engine: State<EngineManager>, id: u32) -> Result<(), String> {
+    engine.playback_release(id)
+}
+
+#[tauri::command]
+pub fn engine_playback_set_paused(engine: State<EngineManager>, id: u32, paused: bool) -> Result<(), String> {
+    engine.playback_set_paused(id, paused)
+}
+
+#[tauri::command]
+pub fn engine_playback_set_fader(engine: State<EngineManager>, id: u32, percent: f32) -> Result<(), String> {
+    engine.playback_set_fader(id, percent)
+}
+
+#[tauri::command]
+pub fn engine_playback_set_fader_mode(engine: State<EngineManager>, id: u32, mode: FaderMode) -> Result<(), String> {
+    engine.playback_set_fader_mode(id, mode)
 }

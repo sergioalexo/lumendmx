@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "./components/TopBar";
 import { TriggerGrid } from "./components/TriggerGrid";
+import { CuePanel } from "./components/CuePanel";
+import { PlaybackBar } from "./components/PlaybackBar";
 import { AiSettings } from "./components/AiSettings";
 import { SystemPanel } from "./components/SystemPanel";
 import { FixturePatchPanel } from "./components/FixturePatchPanel";
@@ -18,7 +20,7 @@ import { useShowStore } from "./store/useShowStore";
 import { useUniverseStatusesStore } from "./store/useUniverseStatusesStore";
 import { useUniverseChannelsStore } from "./store/useUniverseChannelsStore";
 
-type MainView = "fixtures" | "cues" | "palettes" | "setup";
+type MainView = "fixtures" | "cues" | "cuelists" | "palettes" | "setup";
 
 function App() {
   const init = useDmxStore((s) => s.init);
@@ -44,7 +46,7 @@ function App() {
       <div className="flex flex-1 overflow-hidden">
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex gap-1 border-b border-border px-4 py-2">
-            {(["fixtures", "cues", "palettes", "setup"] as MainView[]).map((view) => (
+            {(["fixtures", "cues", "cuelists", "palettes", "setup"] as MainView[]).map((view) => (
               <Button
                 key={view}
                 size="sm"
@@ -55,10 +57,12 @@ function App() {
                 {view === "fixtures"
                   ? "Fixtures"
                   : view === "cues"
-                    ? "Cues"
-                    : view === "palettes"
-                      ? "Palettes"
-                      : "Setup"}
+                    ? "Triggers"
+                    : view === "cuelists"
+                      ? "Cuelists"
+                      : view === "palettes"
+                        ? "Palettes"
+                        : "Setup"}
               </Button>
             ))}
           </div>
@@ -67,12 +71,15 @@ function App() {
               <FixturePatchPanel />
             ) : mainView === "cues" ? (
               <TriggerGrid />
+            ) : mainView === "cuelists" ? (
+              <CuePanel />
             ) : mainView === "palettes" ? (
               <PalettesPanel />
             ) : (
               <SetupPanel />
             )}
           </div>
+          <PlaybackBar />
         </main>
         <aside className="flex w-80 flex-col overflow-y-auto border-l border-border bg-card">
           <AiSettings />

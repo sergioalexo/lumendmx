@@ -90,3 +90,27 @@ drive. Check these off by hand; each entry says which phase added it.
       the slider dims them together, and that it behaves like `GROUP N @
       value` (an immediate set, not a live-riding scale) as documented in
       DECISIONS.md, not something more than that.
+
+## Phase 6 — Cuelists, playback
+
+- [ ] **Record and step through a real Standard cuelist on the 4 pars.**
+      Select fixtures via the command line or the Cuelists tab's picker, set
+      a look, `RECORD CUE 1`, change the look, `RECORD CUE 2`, add a playback
+      from the Cuelists tab, and confirm `NEXT`/GO actually crossfades the
+      real par output over the recorded fade time — the crossfade math is
+      unit-tested, but real DMX output on the wire over that fade is not.
+- [ ] **Two playbacks on the same fixtures, one an Override cuelist.**
+      Confirm the Override playback's LTP channels always win over the
+      Standard one regardless of which was triggered more recently, matching
+      `OVERRIDE_PRIORITY_BASE`'s intent — this is unit-tested against the
+      merge logic in isolation but not against two real concurrent
+      `PlaybackRuntime`s ticking on the live engine thread.
+- [ ] **Chase auto-advance and tap-tempo on the real rig.** Create a Chase
+      cuelist across the 4 pars, add a playback, and confirm the BPM-driven
+      auto-advance actually paces visibly correct on real hardware, and that
+      `PlaybackBar`'s tap-tempo button converges to a sensible BPM after a
+      few taps (its averaging window and click-timestamp math haven't been
+      exercised outside this browser-preview environment's `performance.now`).
+- [ ] **Submaster fader behavior on a real fixture.** Confirm a Submaster
+      playback's fader directly scales its recorded (tracked) look on real
+      output, with no GO-stepping, as intended.
