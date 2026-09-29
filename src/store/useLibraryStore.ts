@@ -26,6 +26,8 @@ interface LibraryStore {
   removeAsset: (id: string) => void;
   trigger: (id: string) => void;
   stop: (id: string) => void;
+  /** Replaces the whole library (e.g. loading a show file's legacy assets). */
+  replaceAll: (assets: LightAsset[]) => void;
 }
 
 const runners = new Map<string, AssetRunner>();
@@ -80,5 +82,11 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       activeAssetIds.delete(id);
       set({ activeAssetIds });
     }
+  },
+
+  replaceAll: (assets) => {
+    for (const id of get().activeAssetIds) get().stop(id);
+    persist(assets);
+    set({ assets });
   },
 }));

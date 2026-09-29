@@ -3,6 +3,7 @@ import { useDmxStore } from "../store/useDmxStore";
 import { Button } from "./ui/button";
 import { Select } from "./ui/input";
 import { cn } from "../lib/utils";
+import { ShowMenu } from "./ShowMenu";
 
 export function TopBar() {
   const { connection, blackout, ports, connect, disconnect, toggleBlackout, refreshPorts } =
@@ -13,6 +14,8 @@ export function TopBar() {
       <h1 className="text-lg font-semibold tracking-tight">
         Lumen<span className="text-primary">DMX</span>
       </h1>
+
+      <ShowMenu />
 
       <div className="flex flex-1 items-center gap-3">
         <span

@@ -1,5 +1,6 @@
 mod commands;
 mod dmx;
+mod showfile;
 
 use dmx::DmxEngine;
 use tauri::Manager;
@@ -25,6 +26,11 @@ pub fn run() {
             commands::get_universe,
             commands::set_blackout,
             commands::get_blackout,
+            showfile::commands::showfile_new,
+            showfile::commands::showfile_open,
+            showfile::commands::showfile_save,
+            showfile::commands::showfile_autosave,
+            showfile::commands::showfile_recent,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
