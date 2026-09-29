@@ -1,13 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ArtNetNode, DriverConfig, DriverDefaults, UniverseStatus } from "./showfile/generated";
 
 export const UNIVERSE_SIZE = 512;
-
-export interface ConnectionStatus {
-  connected: boolean;
-  port: string | null;
-  error: string | null;
-}
 
 export interface SerialPortDescriptor {
   port_name: string;
@@ -19,38 +14,62 @@ export function listSerialPorts(): Promise<SerialPortDescriptor[]> {
   return invoke("list_serial_ports");
 }
 
-export function connectSerialPort(portName: string): Promise<void> {
-  return invoke("connect_serial_port", { portName });
+/** Creates or replaces `universeId`'s driver; stops its previous driver first. */
+export function configureUniverse(universeId: number, driver: DriverConfig): Promise<void> {
+  return invoke("output_configure_universe", { universeId, driver });
 }
 
-export function disconnectSerialPort(): Promise<void> {
-  return invoke("disconnect_serial_port");
+export function removeUniverse(universeId: number): Promise<void> {
+  return invoke("output_remove_universe", { universeId });
 }
 
-export function getConnectionStatus(): Promise<ConnectionStatus> {
-  return invoke("connection_status");
-}
-
-/** Overwrites the entire 512-channel universe on the hardware output thread. */
-export function updateUniverse(channels: Uint8Array): Promise<void> {
+/** Overwrites all 512 channels of `universeId`. The universe must already have
+ * a driver configured (see `configureUniverse`). */
+export function updateUniverseData(universeId: number, channels: Uint8Array): Promise<void> {
   if (channels.length !== UNIVERSE_SIZE) {
     throw new Error(`Expected ${UNIVERSE_SIZE} channels, got ${channels.length}`);
   }
-  return invoke("update_universe", { channels: Array.from(channels) });
+  return invoke("output_update_universe_data", { universeId, channels: Array.from(channels) });
 }
 
-export function getUniverse(): Promise<number[]> {
-  return invoke("get_universe");
+export function getUniverseData(universeId: number): Promise<number[]> {
+  return invoke("output_get_universe_data", { universeId });
 }
 
+export function getUniverseStatus(universeId: number): Promise<UniverseStatus | null> {
+  return invoke("output_universe_status", { universeId });
+}
+
+export function getAllStatuses(): Promise<UniverseStatus[]> {
+  return invoke("output_all_statuses");
+}
+
+export function getUniverseConfig(universeId: number): Promise<DriverConfig | null> {
+  return invoke("output_get_universe_config", { universeId });
+}
+
+export function getDriverDefaults(): Promise<DriverDefaults> {
+  return invoke("output_driver_defaults");
+}
+
+export function getDriverLabel(driver: DriverConfig): Promise<string> {
+  return invoke("output_driver_label", { driver });
+}
+
+/** Broadcasts an ArtPoll and collects replies for a few seconds. */
+export function discoverArtNetNodes(): Promise<ArtNetNode[]> {
+  return invoke("output_discover_artnet_nodes");
+}
+
+/** Global safety override across every active universe. */
 export function setBlackout(active: boolean): Promise<void> {
-  return invoke("set_blackout", { active });
+  return invoke("output_set_blackout", { active });
 }
 
 export function getBlackout(): Promise<boolean> {
-  return invoke("get_blackout");
+  return invoke("output_get_blackout");
 }
 
-export function onConnectionChanged(cb: (status: ConnectionStatus) => void) {
-  return listen<ConnectionStatus>("dmx://connection-changed", (event) => cb(event.payload));
+export function onUniverseStatusChanged(cb: (status: UniverseStatus) => void) {
+  return listen<UniverseStatus>("dmx://universe-status-changed", (event) => cb(event.payload));
 }

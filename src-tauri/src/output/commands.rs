@@ -5,6 +5,7 @@ use tauri::State;
 use ts_rs::TS;
 
 use super::config::{DriverConfig, DEFAULT_NETWORK_RATE_HZ, DEFAULT_SERIAL_RATE_HZ};
+use super::input::DmxInputManager;
 use super::manager::OutputManager;
 use super::runner::UniverseStatus;
 use super::{artnet, UNIVERSE_SIZE};
@@ -166,4 +167,37 @@ pub fn output_discover_artnet_nodes() -> Result<Vec<ArtNetNode>, String> {
             long_name: n.long_name,
         })
         .collect())
+}
+
+// --- DMX input (see output::input's scope note: decode-only for now, not yet
+// merged into any universe's output) ---
+
+#[tauri::command]
+pub fn input_start_artnet(manager: State<DmxInputManager>) -> Result<(), String> {
+    manager.start_artnet_listener()
+}
+
+#[tauri::command]
+pub fn input_get_artnet_frame(
+    manager: State<DmxInputManager>,
+    net: u8,
+    subnet: u8,
+    universe: u8,
+) -> Option<Vec<u8>> {
+    manager.artnet_frame(net, subnet, universe).map(|d| d.to_vec())
+}
+
+#[tauri::command]
+pub fn input_start_sacn(manager: State<DmxInputManager>, universe: u16) -> Result<(), String> {
+    manager.start_sacn_listener(universe)
+}
+
+#[tauri::command]
+pub fn input_stop_sacn(manager: State<DmxInputManager>, universe: u16) {
+    manager.stop_sacn_listener(universe);
+}
+
+#[tauri::command]
+pub fn input_get_sacn_frame(manager: State<DmxInputManager>, universe: u16) -> Option<Vec<u8>> {
+    manager.sacn_frame(universe).map(|d| d.to_vec())
 }

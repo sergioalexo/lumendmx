@@ -35,6 +35,26 @@ pub fn encode_artdmx(net: u8, subnet: u8, universe: u8, sequence: u8, data: &[u8
     packet
 }
 
+/// Decodes an ArtDMX packet into `(net, subnet, universe, data)`. Returns
+/// `None` for anything that isn't a well-formed ArtDMX packet carrying a full
+/// 512-channel universe.
+pub fn decode_artdmx(packet: &[u8]) -> Option<(u8, u8, u8, [u8; UNIVERSE_SIZE])> {
+    if packet.len() < 18 + UNIVERSE_SIZE || &packet[0..8] != ID || packet[8..10] != OP_DMX {
+        return None;
+    }
+    let sub_uni = packet[14];
+    let net = packet[15] & 0x7F;
+    let subnet = (sub_uni >> 4) & 0x0F;
+    let universe = sub_uni & 0x0F;
+    let len = u16::from_be_bytes([packet[16], packet[17]]) as usize;
+    if len < UNIVERSE_SIZE || packet.len() < 18 + len {
+        return None;
+    }
+    let mut data = [0u8; UNIVERSE_SIZE];
+    data.copy_from_slice(&packet[18..18 + UNIVERSE_SIZE]);
+    Some((net, subnet, universe, data))
+}
+
 pub fn encode_artpoll() -> Vec<u8> {
     let mut packet = Vec::with_capacity(14);
     packet.extend_from_slice(ID);
@@ -220,14 +240,28 @@ mod tests {
 
         let mut buf = [0u8; 1024];
         let (n, _) = receiver.recv_from(&mut buf).unwrap();
-        let received = decode_test_artdmx(&buf[..n]);
+        let (net, subnet, universe, received) = decode_artdmx(&buf[..n]).expect("should decode");
+        assert_eq!((net, subnet, universe), (0, 0, 1));
         assert_eq!(received, data);
     }
 
-    fn decode_test_artdmx(packet: &[u8]) -> [u8; UNIVERSE_SIZE] {
-        assert_eq!(&packet[8..10], &[0x00, 0x50]);
+    #[test]
+    fn decode_artdmx_round_trips_encode_artdmx() {
         let mut data = [0u8; UNIVERSE_SIZE];
-        data.copy_from_slice(&packet[18..18 + UNIVERSE_SIZE]);
-        data
+        data[10] = 200;
+        data[500] = 5;
+        let packet = encode_artdmx(3, 0xA, 0x5, 1, &data);
+
+        let (net, subnet, universe, decoded) = decode_artdmx(&packet).expect("should decode");
+        assert_eq!((net, subnet, universe), (3, 0xA, 0x5));
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn decode_artdmx_rejects_wrong_opcode_and_short_packets() {
+        assert!(decode_artdmx(&[0u8; 10]).is_none());
+        let mut wrong_op = encode_artdmx(0, 0, 0, 1, &[0u8; UNIVERSE_SIZE]);
+        wrong_op[8] = 0xFF;
+        assert!(decode_artdmx(&wrong_op).is_none());
     }
 }

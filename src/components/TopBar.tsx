@@ -1,13 +1,53 @@
 import { Power, RefreshCw } from "lucide-react";
-import { useDmxStore } from "../store/useDmxStore";
+import { PRIMARY_UNIVERSE_ID, useDmxStore } from "../store/useDmxStore";
+import { EMPTY_UNIVERSES, useShowStore } from "../store/useShowStore";
+import { useUniverseStatusesStore } from "../store/useUniverseStatusesStore";
 import { Button } from "./ui/button";
 import { Select } from "./ui/input";
 import { cn } from "../lib/utils";
 import { ShowMenu } from "./ShowMenu";
 
+function statusColor(connected: boolean, hasDriver: boolean): string {
+  if (!hasDriver) return "bg-muted-foreground/40";
+  return connected ? "bg-success" : "bg-destructive";
+}
+
+/** One dot per configured universe (green/amber-ish gray/red), per BUILD_PLAN
+ * Phase 2's "per-universe status in the top bar". The primary universe's own
+ * detailed connect/disconnect controls sit next to it; this row covers
+ * whatever else Setup has added. */
+function UniverseStatusDots() {
+  const universes = useShowStore((s) => s.meta?.universes ?? EMPTY_UNIVERSES);
+  const statuses = useUniverseStatusesStore((s) => s.statuses);
+  const extra = universes.filter((u) => u.id !== PRIMARY_UNIVERSE_ID);
+  if (extra.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {extra.map((universe) => {
+        const status = statuses[universe.id];
+        const hasDriver = universe.driver.kind !== "null";
+        const title = `${universe.name} (${universe.driver.kind})${
+          status ? ` — ${status.connected ? `${status.framesPerSec.toFixed(0)} fps` : status.error ?? "not connected"}` : ""
+        }`;
+        return (
+          <span
+            key={universe.id}
+            className={cn("h-2.5 w-2.5 rounded-full", statusColor(status?.connected ?? false, hasDriver))}
+            title={title}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function TopBar() {
-  const { connection, blackout, ports, connect, disconnect, toggleBlackout, refreshPorts } =
-    useDmxStore();
+  const { status, blackout, ports, connect, disconnect, toggleBlackout, refreshPorts } = useDmxStore();
+  const primaryDriver = useShowStore((s) =>
+    s.meta?.universes.find((u) => u.id === PRIMARY_UNIVERSE_ID)?.driver,
+  );
+  const primaryPort = primaryDriver?.kind === "ftdi" ? primaryDriver.port : null;
 
   return (
     <header className="flex items-center gap-4 border-b border-border bg-card px-4 py-3">
@@ -19,21 +59,18 @@ export function TopBar() {
 
       <div className="flex flex-1 items-center gap-3">
         <span
-          className={cn(
-            "h-2.5 w-2.5 rounded-full",
-            connection.connected ? "bg-success" : "bg-destructive",
-          )}
-          title={connection.error ?? undefined}
+          className={cn("h-2.5 w-2.5 rounded-full", status.connected ? "bg-success" : "bg-destructive")}
+          title={status.error ?? undefined}
         />
         <span className="text-sm text-muted-foreground">
-          {connection.connected
-            ? `Connected: ${connection.port}`
-            : connection.error
-              ? `Error: ${connection.error}`
+          {status.connected
+            ? `Connected: ${primaryPort ?? "Universe 1"}`
+            : status.error
+              ? `Error: ${status.error}`
               : "Not connected"}
         </span>
 
-        {!connection.connected && (
+        {!status.connected && (
           <>
             <Select
               className="w-56"
@@ -55,11 +92,13 @@ export function TopBar() {
             </Button>
           </>
         )}
-        {connection.connected && (
+        {status.connected && (
           <Button variant="outline" size="sm" onClick={() => void disconnect()}>
             Disconnect
           </Button>
         )}
+
+        <UniverseStatusDots />
       </div>
 
       <Button

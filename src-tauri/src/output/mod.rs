@@ -8,6 +8,7 @@ pub mod commands;
 pub mod config;
 pub mod enttec_pro;
 pub mod ftdi;
+pub mod input;
 pub mod manager;
 pub mod null;
 pub mod runner;

@@ -1,9 +1,23 @@
 import { create } from "zustand";
+import * as dmx from "../lib/dmx";
 import { showfileAutosave, showfileNew, showfileOpen, showfileRecent, showfileSave } from "../lib/showfile/api";
-import type { RecentShowEntry, ShowFile, ShowSettings, UniverseConfig, Workspace } from "../lib/showfile/generated";
+import type {
+  DriverConfig,
+  RecentShowEntry,
+  ShowFile,
+  ShowSettings,
+  UniverseConfig,
+  Workspace,
+} from "../lib/showfile/generated";
 import { assetsToLegacy, legacyToAssets } from "../lib/showfile/legacyAssets";
 import { useLibraryStore } from "./useLibraryStore";
 import { usePatchStore } from "./usePatchStore";
+
+/** Stable reference for "no show open yet" selectors (`s.meta?.universes ??
+ * EMPTY_UNIVERSES`). A fresh `[]` literal in the selector itself would give
+ * useSyncExternalStore a new snapshot identity every render and spin into an
+ * infinite re-render loop. */
+export const EMPTY_UNIVERSES: UniverseConfig[] = [];
 
 const AUTOSAVE_INTERVAL_MS = 60_000;
 
@@ -56,6 +70,22 @@ function applyPatchAndAssets(show: ShowFile): void {
   }
 }
 
+/** Spins up (or re-spins-up) each of the show's universes' output drivers to
+ * match what's on disk. Best-effort: a universe whose driver fails to start
+ * (e.g. its serial port isn't plugged in) is logged, not fatal to loading the
+ * show — the Setup screen will show it as disconnected. */
+async function activateUniverses(show: ShowFile): Promise<void> {
+  await Promise.all(
+    show.universes.map(async (universe) => {
+      try {
+        await dmx.configureUniverse(universe.id, universe.driver);
+      } catch (err) {
+        console.warn(`Failed to start universe ${universe.id} (${universe.name}):`, err);
+      }
+    }),
+  );
+}
+
 interface ShowState {
   meta: ShowMeta | null;
   path: string | null;
@@ -69,6 +99,13 @@ interface ShowState {
   save: () => Promise<void>;
   saveAs: () => Promise<void>;
   refreshRecent: () => Promise<void>;
+
+  /** Reconfigures a universe's driver, live and in the show's saved state. */
+  setUniverseDriver: (universeId: number, driver: DriverConfig) => Promise<void>;
+  /** Adds a new universe (starts with no driver) and returns its id. */
+  addUniverse: (name: string) => number;
+  /** Stops a universe's driver and drops it from the show entirely. */
+  removeUniverseEntirely: (universeId: number) => void;
 }
 
 let autosaveTimer: ReturnType<typeof setInterval> | null = null;
@@ -100,6 +137,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
       const show = await showfileNew();
       applyPatchAndAssets(show);
       set({ meta: toMeta(show), path: null, dirty: false });
+      void activateUniverses(show);
     } catch (err) {
       // Expected outside the Tauri runtime (plain browser preview).
       console.warn("Show backend unavailable:", err);
@@ -111,6 +149,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
     applyPatchAndAssets(show);
     set({ meta: toMeta(show), path: usedPath, dirty: false });
     void get().refreshRecent();
+    void activateUniverses(show);
   },
 
   save: async () => {
@@ -146,6 +185,31 @@ export const useShowStore = create<ShowState>((set, get) => ({
     } catch (err) {
       console.warn("Could not load recent shows:", err);
     }
+  },
+
+  setUniverseDriver: async (universeId, driver) => {
+    await dmx.configureUniverse(universeId, driver);
+    const { meta } = get();
+    if (!meta) return;
+    const universes = meta.universes.map((u) => (u.id === universeId ? { ...u, driver } : u));
+    set({ meta: { ...meta, universes }, dirty: true });
+  },
+
+  addUniverse: (name) => {
+    const { meta } = get();
+    if (!meta) throw new Error("No show open");
+    const nextId = meta.universes.reduce((max, u) => Math.max(max, u.id), 0) + 1;
+    const universe: UniverseConfig = { id: nextId, name, driver: { kind: "null" } };
+    set({ meta: { ...meta, universes: [...meta.universes, universe] }, dirty: true });
+    return nextId;
+  },
+
+  removeUniverseEntirely: (universeId) => {
+    void dmx.removeUniverse(universeId);
+    const { meta } = get();
+    if (!meta) return;
+    const universes = meta.universes.filter((u) => u.id !== universeId);
+    set({ meta: { ...meta, universes }, dirty: true });
   },
 }));
 

@@ -81,6 +81,39 @@ pub fn encode_e131(
     packet
 }
 
+/// Decodes an E1.31 data packet carrying a full 512-channel universe into
+/// `(universe, data)`. Returns `None` for anything shorter than the standard
+/// 638-byte full-universe packet or that doesn't match the expected root/
+/// framing/DMP vectors at their fixed offsets.
+pub fn decode_e131(packet: &[u8]) -> Option<(u16, [u8; UNIVERSE_SIZE])> {
+    const FRAMING_START: usize = 38;
+    const UNIVERSE_OFFSET: usize = FRAMING_START + 2 + 4 + 64 + 1 + 2 + 1 + 1; // 113
+    const DMP_START: usize = FRAMING_START + 77; // 115
+    const DMP_VECTOR_OFFSET: usize = DMP_START + 2; // 117
+    const START_CODE_OFFSET: usize = DMP_START + 10; // 125
+
+    if packet.len() < START_CODE_OFFSET + 1 + UNIVERSE_SIZE {
+        return None;
+    }
+    if packet[4..16] != ACN_ID {
+        return None;
+    }
+    if packet[18..22] != VECTOR_ROOT_E131_DATA {
+        return None;
+    }
+    if packet[FRAMING_START + 2..FRAMING_START + 6] != VECTOR_E131_DATA_PACKET {
+        return None;
+    }
+    if packet[DMP_VECTOR_OFFSET] != VECTOR_DMP_SET_PROPERTY {
+        return None;
+    }
+
+    let universe = u16::from_be_bytes([packet[UNIVERSE_OFFSET], packet[UNIVERSE_OFFSET + 1]]);
+    let mut data = [0u8; UNIVERSE_SIZE];
+    data.copy_from_slice(&packet[START_CODE_OFFSET + 1..START_CODE_OFFSET + 1 + UNIVERSE_SIZE]);
+    Some((universe, data))
+}
+
 pub struct SacnDriver {
     socket: UdpSocket,
     destination: SocketAddr,
@@ -184,6 +217,27 @@ mod tests {
         assert_eq!(packet[start_code_offset], 0x00); // DMX start code
         assert_eq!(packet[start_code_offset + 1], 255); // channel 1
         assert_eq!(packet[start_code_offset + 512], 42); // channel 512
+    }
+
+    #[test]
+    fn decode_e131_round_trips_encode_e131() {
+        let mut data = [0u8; UNIVERSE_SIZE];
+        data[0] = 1;
+        data[300] = 88;
+        data[511] = 255;
+        let packet = encode_e131([9u8; 16], "LumenDMX", 150, 7, 42, &data);
+
+        let (universe, decoded) = decode_e131(&packet).expect("should decode");
+        assert_eq!(universe, 42);
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn decode_e131_rejects_short_or_malformed_packets() {
+        assert!(decode_e131(&[0u8; 20]).is_none());
+        let mut bad_id = encode_e131([0u8; 16], "X", 100, 1, 1, &[0u8; UNIVERSE_SIZE]);
+        bad_id[4] = 0xFF;
+        assert!(decode_e131(&bad_id).is_none());
     }
 
     #[test]

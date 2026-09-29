@@ -1,6 +1,7 @@
 mod output;
 mod showfile;
 
+use output::input::DmxInputManager;
 use output::manager::OutputManager;
 use tauri::Manager;
 
@@ -14,6 +15,7 @@ pub fn run() {
         .setup(|app| {
             let manager = OutputManager::new(app.handle().clone());
             app.manage(manager);
+            app.manage(DmxInputManager::new());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -30,6 +32,11 @@ pub fn run() {
             output::commands::output_driver_defaults,
             output::commands::output_driver_label,
             output::commands::output_discover_artnet_nodes,
+            output::commands::input_start_artnet,
+            output::commands::input_get_artnet_frame,
+            output::commands::input_start_sacn,
+            output::commands::input_stop_sacn,
+            output::commands::input_get_sacn_frame,
             showfile::commands::showfile_new,
             showfile::commands::showfile_open,
             showfile::commands::showfile_save,
