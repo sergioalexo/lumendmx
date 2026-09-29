@@ -47,13 +47,29 @@ once" contract (a static look that persists) rather than reverting once its
 `RunningPlayback` stops. `stop_asset`/re-triggering the same id is what
 actually removes a layer.
 
+## Groups and presets (Phase 5)
+
+- `engine::groups::GroupStore`: a named, persistent set of fixture numbers.
+  The command line's `GROUP N` selection term resolves against these (see
+  `SelectionExpr::resolve`'s `groups` parameter).
+- `engine::presets::PresetStore`: a named set of *attribute* values (e.g.
+  "red" -> 200.0), one store shared across all seven families
+  (Intensity/Colour/Position/Beam/BeamFx/Framing/Effect), filterable by
+  family. Recording reads each target fixture's currently-rendered value via
+  `merge_universe`; applying resolves attribute -> channel fresh per target
+  fixture through `PatchIndexEntry.attribute_channels`, so the same preset
+  can apply to any fixture with matching attributes — not just the one it
+  was recorded from, and never a snapshot copied into whatever uses it. See
+  DECISIONS.md for what a preset apply and a "group master" fader are (and
+  aren't).
+
 ## What isn't here yet
 
-- **Cuelists, groups, presets** (Phases 5/6): the command line's
-  `GROUP`/`RECORD CUE`/`UPDATE`/`DELETE CUE`/`COPY`/`MOVE` all parse correctly
-  (and are unit-tested) but execute as a clear "not implemented yet" error.
-  Guessing at semantics those phases haven't designed would just mean
-  redoing it.
+- **Cuelists** (Phase 6): the command line's `RECORD CUE`/`UPDATE`/`DELETE
+  CUE`/`COPY`/`MOVE` all parse correctly (and are unit-tested) but execute as
+  a clear "not implemented yet" error. Guessing at semantics that phase
+  hasn't designed would just mean redoing it. `apply_preset`'s lookup-by-id
+  pattern is what a recorded cue referencing a preset will reuse.
 - **An attribute encoder bar / full manual programmer UI**: `CommandLine.tsx`
   is the only manual programmer surface today. The Onyx-style attribute bar
   (BUILD_PLAN section 2) is progressive UI work built up as later phases add

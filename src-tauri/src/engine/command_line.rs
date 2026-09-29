@@ -1,8 +1,9 @@
 //! The Onyx-style command line: `1 THRU 8 @ 50`, `GROUP 2 @ 0`, `RECORD CUE
-//! 1.5`, etc. This module only covers what BUILD_PLAN Phase 3 actually lists;
-//! groups (Phase 5) and cues (Phase 6) don't exist yet, so `GROUP`/cue
-//! commands parse correctly (and are unit-tested here) but execute as a clear
-//! "not available yet" error rather than pretending to do something.
+//! 1.5`, etc. `GROUP` resolves against real groups (Phase 5, see
+//! `engine::groups`) as of this module's `resolve`; cue commands (`RECORD
+//! CUE`/`UPDATE`/`DELETE CUE`/`COPY`/`MOVE`) still parse correctly (and are
+//! unit-tested here) but execute as a clear "not available yet" error, since
+//! cuelists are Phase 6.
 //!
 //! Grammar (this project's own interpretation of the examples in
 //! BUILD_PLAN.md — there's no full Onyx manual to work from):
@@ -19,7 +20,7 @@
 //! intensity    := "FULL" | number   -- number is a 0-100 percent
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectOp {
@@ -40,8 +41,13 @@ pub struct SelectionExpr {
 }
 
 impl SelectionExpr {
-    /// Resolves against `known_fixture_numbers` (groups always fail — Phase 5).
-    pub fn resolve(&self, known_fixture_numbers: &HashSet<u32>) -> Result<HashSet<u32>, String> {
+    /// Resolves against `known_fixture_numbers` and `groups` (group id ->
+    /// its member fixture numbers, from `engine::groups::GroupStore`).
+    pub fn resolve(
+        &self,
+        known_fixture_numbers: &HashSet<u32>,
+        groups: &HashMap<u32, Vec<u32>>,
+    ) -> Result<HashSet<u32>, String> {
         let mut result = HashSet::new();
         for (op, term) in &self.terms {
             let matched: HashSet<u32> = match term {
@@ -50,9 +56,10 @@ impl SelectionExpr {
                     let (lo, hi) = if from <= to { (*from, *to) } else { (*to, *from) };
                     (lo..=hi).collect()
                 }
-                SelectionTerm::Group(n) => {
-                    return Err(format!("No group {n} (groups aren't implemented yet — Phase 5)"))
-                }
+                SelectionTerm::Group(n) => match groups.get(n) {
+                    Some(members) => members.iter().copied().collect(),
+                    None => return Err(format!("No group {n}")),
+                },
             };
             match op {
                 SelectOp::Add => result.extend(matched),
@@ -268,17 +275,18 @@ mod tests {
 
     #[test]
     fn parses_plus_and_minus_selection_operators() {
+        let no_groups = HashMap::new();
         let cmd = parse("1 THRU 8 + 10").unwrap();
         let Command::Select(expr) = cmd else { panic!("expected Select") };
         assert_eq!(
-            expr.resolve(&fixtures(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10])).unwrap(),
+            expr.resolve(&fixtures(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), &no_groups).unwrap(),
             fixtures(&[1, 2, 3, 4, 5, 6, 7, 8, 10])
         );
 
         let cmd = parse("1 THRU 8 - 3").unwrap();
         let Command::Select(expr) = cmd else { panic!("expected Select") };
         assert_eq!(
-            expr.resolve(&fixtures(&[1, 2, 3, 4, 5, 6, 7, 8])).unwrap(),
+            expr.resolve(&fixtures(&[1, 2, 3, 4, 5, 6, 7, 8]), &no_groups).unwrap(),
             fixtures(&[1, 2, 4, 5, 6, 7, 8])
         );
     }
@@ -295,10 +303,19 @@ mod tests {
     }
 
     #[test]
-    fn group_selection_fails_to_resolve_since_groups_do_not_exist_yet() {
+    fn group_selection_fails_to_resolve_when_no_such_group_exists() {
         let Command::Select(expr) = parse("GROUP 2").unwrap() else { panic!("expected Select") };
-        let err = expr.resolve(&fixtures(&[1, 2])).unwrap_err();
+        let err = expr.resolve(&fixtures(&[1, 2]), &HashMap::new()).unwrap_err();
         assert!(err.contains("group 2"));
+    }
+
+    #[test]
+    fn group_selection_resolves_to_its_recorded_members() {
+        let Command::Select(expr) = parse("GROUP 2").unwrap() else { panic!("expected Select") };
+        let mut groups = HashMap::new();
+        groups.insert(2, vec![5, 6, 7]);
+        let resolved = expr.resolve(&fixtures(&[1, 2, 5, 6, 7]), &groups).unwrap();
+        assert_eq!(resolved, fixtures(&[5, 6, 7]));
     }
 
     #[test]

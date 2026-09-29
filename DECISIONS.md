@@ -163,3 +163,44 @@ One line (or a short paragraph) per call made without stopping to ask, per
   frames** (`useUniverseChannelsStore`), not just the primary universe's
   buffer — needed once a fixture could be patched to any universe, not only
   the first one.
+
+## Phase 5 — Groups, presets, palettes
+
+- **"Group master" is the same operation as `GROUP N @ value` on the command
+  line, not a continuously-multiplying scaling layer.** A true multiplicative
+  master (everything under it gets scaled, live, regardless of what sets it)
+  would need restructuring `engine::merge`'s pipeline so every layer's value
+  passes through any group masters affecting its fixtures before HTP/LTP
+  resolution — a real, more invasive change. What's here instead: moving the
+  slider re-applies the group's intensity directly, same as typing the
+  command. Good enough for "a fader that dims a group," not for "a fader that
+  rides on top of whatever a chase is doing to that group."
+- **Presets are attribute-keyed (e.g. "red", "pan"), not raw-channel-keyed.**
+  Recording captures each attribute's *currently rendered* (post-merge)
+  value; applying resolves attribute -> channel fresh per **target** fixture
+  via `PatchIndexEntry.attribute_channels`. This is what makes "global/per-
+  fixture-type/per-fixture" presets in BUILD_PLAN's wording actually mean
+  something — the same "Deep Blue" preset can apply to any fixture with
+  red/green/blue channels, not just the one it was recorded from.
+- **`apply_preset` always re-reads the preset by id — never caches or copies
+  its values anywhere.** This is the actual mechanism behind "updating a
+  preset changes every cue that references it"; proven by a unit test
+  (`updating_a_preset_changes_what_every_future_lookup_sees`) rather than by
+  a real cue, since cuelists are Phase 6. Phase 6 reuses `apply_preset`/the
+  lookup-by-id pattern as-is rather than inventing a second mechanism.
+- **The Palettes panel has its own fixture picker, not a shared "current
+  selection".** There's no cross-tab/global selection state yet (the patch
+  panel's selection is local component state); building that just so Groups/
+  Presets could "use the current selection" would be more new infrastructure
+  than this phase needs — a self-contained picker does the same job.
+- **Color picker uses HSV internally, not true HSI**, with a "Brightness"
+  slider standing in for HSI's intensity axis — same wheel interaction (hue =
+  angle, saturation = radius) BUILD_PLAN's "HSI wheel" asks for, well-known
+  conversion math (unit-tested), without chasing a less-common color model
+  for no visible difference in this UI. CMY faders weren't added: redundant
+  with RGB for this app's channel-based model.
+- **No preset thumbnails beyond a plain color swatch.** Colour presets show
+  their recorded color; other families show a plain tile with the preset's
+  name. Real thumbnails (e.g. a gobo image, a position indicator) need
+  per-family rendering that isn't worth building before Phase 6 gives
+  presets an actual consumer.

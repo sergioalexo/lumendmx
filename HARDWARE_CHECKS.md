@@ -78,3 +78,15 @@ drive. Check these off by hand; each entry says which phase added it.
 - [ ] **Try a QLC+ `.qxf` import** against a real fixture file from QLC+'s
       own fixture repository (not just this project's test fixture) to
       catch any real-world `.qxf` quirk the unit tests didn't cover.
+
+## Phase 5 — Groups, presets, palettes
+
+- [ ] **Record and apply a real Colour preset on the 4 pars.** Pick a color
+      with the wheel, record it, then apply it to a different par than the
+      one it was recorded from, and confirm the color actually matches (the
+      attribute->channel resolution per target fixture is the part that
+      can't be fully proven without real hardware to look at).
+- [ ] **Group master fader** on a real group of the 4 pars — confirm moving
+      the slider dims them together, and that it behaves like `GROUP N @
+      value` (an immediate set, not a live-riding scale) as documented in
+      DECISIONS.md, not something more than that.
