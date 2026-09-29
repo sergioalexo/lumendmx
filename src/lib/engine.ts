@@ -1,6 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CommandResult, EngineFrame, Group, PatchIndexEntry, Preset, PresetFamily } from "./showfile/generated";
+import type {
+  CommandResult,
+  CuelistDto,
+  CuelistKind,
+  EngineFrame,
+  FaderMode,
+  Group,
+  PatchIndexEntry,
+  PlaybackStatus,
+  Preset,
+  PresetFamily,
+} from "./showfile/generated";
 import type { LightAsset } from "./types";
 
 export function setHtpChannels(universe: number, channels: number[]): Promise<void> {
@@ -112,4 +123,118 @@ export function applyPreset(id: number, fixtureNumbers: number[]): Promise<numbe
   return invoke("engine_apply_preset", { id, fixtureNumbers });
 }
 
-export type { CommandResult, EngineFrame, Group, PatchIndexEntry, Preset, PresetFamily } from "./showfile/generated";
+// --- Cuelists and cues (Phase 6) ---
+
+export function createCuelist(name: string, kind: CuelistKind, tracking: boolean): Promise<number> {
+  return invoke("engine_create_cuelist", { name, kind, tracking });
+}
+
+export function listCuelists(): Promise<CuelistDto[]> {
+  return invoke("engine_list_cuelists");
+}
+
+export function deleteCuelist(id: number): Promise<void> {
+  return invoke("engine_delete_cuelist", { id });
+}
+
+export function renameCuelist(id: number, name: string): Promise<void> {
+  return invoke("engine_rename_cuelist", { id, name });
+}
+
+export function setCuelistTracking(id: number, tracking: boolean): Promise<void> {
+  return invoke("engine_set_cuelist_tracking", { id, tracking });
+}
+
+/** Sets which cuelist the command line's RECORD CUE/UPDATE/DELETE CUE/NEXT/
+ * PREV operate against — call when a cuelist is selected in the UI. */
+export function setCurrentCuelist(id: number | null): Promise<void> {
+  return invoke("engine_set_current_cuelist", { id });
+}
+
+/** Records a cue from the given fixtures' currently-rendered state — the
+ * same "record what you see" approach as `recordPreset`. Use
+ * `setCuePresetReference` afterwards to turn a specific channel into a live
+ * preset reference instead of a literal. */
+export function recordCue(
+  cuelistId: number,
+  number: number,
+  name: string,
+  fixtureNumbers: number[],
+  fadeInMs: number,
+  fadeOutMs: number,
+): Promise<void> {
+  return invoke("engine_record_cue", { cuelistId, number, name, fixtureNumbers, fadeInMs, fadeOutMs });
+}
+
+export function deleteCue(cuelistId: number, number: number): Promise<void> {
+  return invoke("engine_delete_cue", { cuelistId, number });
+}
+
+export function setCuePresetReference(
+  cuelistId: number,
+  cueNumber: number,
+  fixtureNumber: number,
+  attribute: string,
+  presetId: number,
+): Promise<void> {
+  return invoke("engine_set_cue_preset_reference", { cuelistId, cueNumber, fixtureNumber, attribute, presetId });
+}
+
+export function setChaseTempo(cuelistId: number, bpm: number): Promise<void> {
+  return invoke("engine_set_chase_tempo", { cuelistId, bpm });
+}
+
+// --- Playbacks (Phase 6) ---
+
+export function createPlayback(cuelistId: number): Promise<number> {
+  return invoke("engine_create_playback", { cuelistId });
+}
+
+export function deletePlayback(id: number): Promise<void> {
+  return invoke("engine_delete_playback", { id });
+}
+
+export function listPlaybacks(): Promise<PlaybackStatus[]> {
+  return invoke("engine_list_playbacks");
+}
+
+export function playbackGo(id: number): Promise<void> {
+  return invoke("engine_playback_go", { id });
+}
+
+export function playbackGoBack(id: number): Promise<void> {
+  return invoke("engine_playback_go_back", { id });
+}
+
+export function playbackRelease(id: number): Promise<void> {
+  return invoke("engine_playback_release", { id });
+}
+
+export function playbackSetPaused(id: number, paused: boolean): Promise<void> {
+  return invoke("engine_playback_set_paused", { id, paused });
+}
+
+export function playbackSetFader(id: number, percent: number): Promise<void> {
+  return invoke("engine_playback_set_fader", { id, percent });
+}
+
+export function playbackSetFaderMode(id: number, mode: FaderMode): Promise<void> {
+  return invoke("engine_playback_set_fader_mode", { id, mode });
+}
+
+export type {
+  CommandResult,
+  CuelistDto,
+  CuelistKind,
+  CueDto,
+  CueValue,
+  CueValueEntry,
+  ChaseDirection,
+  EngineFrame,
+  FaderMode,
+  Group,
+  PatchIndexEntry,
+  PlaybackStatus,
+  Preset,
+  PresetFamily,
+} from "./showfile/generated";
