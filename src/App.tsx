@@ -5,6 +5,7 @@ import { AiSettings } from "./components/AiSettings";
 import { SystemPanel } from "./components/SystemPanel";
 import { FixturePatchPanel } from "./components/FixturePatchPanel";
 import { ProgrammerPanel } from "./components/ProgrammerPanel";
+import { CommandLine } from "./components/CommandLine";
 import { LiveAiConsole } from "./components/LiveAiConsole";
 import { SetupPanel } from "./components/SetupPanel";
 import { Button } from "./components/ui/button";
@@ -64,6 +65,7 @@ function App() {
         <aside className="flex w-80 flex-col overflow-y-auto border-l border-border bg-card">
           <AiSettings />
           <SystemPanel />
+          <CommandLine />
           <ProgrammerPanel />
           <div className="flex-1" />
           <LiveAiConsole />

@@ -1,8 +1,11 @@
 import { create } from "zustand";
 import * as dmx from "../lib/dmx";
+import * as engineApi from "../lib/engine";
+import { PRIMARY_UNIVERSE_ID } from "../lib/constants";
 import { showfileAutosave, showfileNew, showfileOpen, showfileRecent, showfileSave } from "../lib/showfile/api";
 import type {
   DriverConfig,
+  PatchIndexEntry,
   RecentShowEntry,
   ShowFile,
   ShowSettings,
@@ -10,6 +13,7 @@ import type {
   Workspace,
 } from "../lib/showfile/generated";
 import { assetsToLegacy, legacyToAssets } from "../lib/showfile/legacyAssets";
+import { getAllFixtures, useFixtureLibraryStore } from "./useFixtureLibraryStore";
 import { useLibraryStore } from "./useLibraryStore";
 import { usePatchStore } from "./usePatchStore";
 
@@ -229,5 +233,38 @@ function markDirtyUnlessApplyingShow() {
 
 usePatchStore.subscribe(() => {
   if (patchHydrated) markDirtyUnlessApplyingShow();
+  syncEnginePatch();
 });
 useLibraryStore.subscribe(markDirtyUnlessApplyingShow);
+
+/** Pushes the current patch to the engine as (a) which channels are HTP
+ * (a fixture's dimmer channel) for the merge, and (b) the fixture-number ->
+ * intensity-channel index the command line's `1 THRU 8 @ 50` resolves
+ * against. Fixture numbers are just 1-based patch order for now — real
+ * per-fixture ID assignment is Phase 4's Patch screen. */
+function syncEnginePatch(): void {
+  const fixtures = usePatchStore.getState().fixtures;
+  const allFixtures = getAllFixtures();
+  const htpChannels = new Set<number>();
+
+  const patchIndex: PatchIndexEntry[] = fixtures.map((instance, index) => {
+    const def = allFixtures.find((f) => f.id === instance.fixtureId);
+    const mode = def?.modes[instance.modeIndex];
+    let intensityChannel: number | null = null;
+    if (mode) {
+      for (const ch of mode.channels) {
+        const channel = instance.address + ch.offset - 1;
+        if (ch.type === "dimmer") {
+          htpChannels.add(channel);
+          if (intensityChannel === null) intensityChannel = channel;
+        }
+      }
+    }
+    return { fixtureNumber: index + 1, universe: PRIMARY_UNIVERSE_ID, intensityChannel };
+  });
+
+  void engineApi.setHtpChannels(PRIMARY_UNIVERSE_ID, [...htpChannels]);
+  void engineApi.setPatchIndex(patchIndex);
+}
+
+useFixtureLibraryStore.subscribe(syncEnginePatch);

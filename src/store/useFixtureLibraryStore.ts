@@ -26,11 +26,21 @@ export const useFixtureLibraryStore = create<FixtureLibraryState>()(
   ),
 );
 
+function mergeFixtures(customFixtures: FixtureDefinition[]): FixtureDefinition[] {
+  const customIds = new Set(customFixtures.map((f) => f.id));
+  return [...builtInFixtures.filter((f) => !customIds.has(f.id)), ...customFixtures];
+}
+
 /** Bundled + imported fixtures combined (imported ones win on id collision).
  * A plain selector hook, not a store method, so components actually re-render
  * when `customFixtures` changes (e.g. right after an import). */
 export function useAllFixtures(): FixtureDefinition[] {
   const customFixtures = useFixtureLibraryStore((s) => s.customFixtures);
-  const customIds = new Set(customFixtures.map((f) => f.id));
-  return [...builtInFixtures.filter((f) => !customIds.has(f.id)), ...customFixtures];
+  return mergeFixtures(customFixtures);
+}
+
+/** Same as `useAllFixtures`, for code outside React components (e.g. a
+ * zustand store's own subscribe callback) that can't call a hook. */
+export function getAllFixtures(): FixtureDefinition[] {
+  return mergeFixtures(useFixtureLibraryStore.getState().customFixtures);
 }

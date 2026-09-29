@@ -81,3 +81,44 @@ One line (or a short paragraph) per call made without stopping to ask, per
   `driver: DriverConfig` (tagged enum covering Null/FTDI/EnttecPro/ArtNet/
   sACN), with a migration step and tests for both the "had an FTDI port" and
   "had no port" cases.
+
+## Phase 3 — Engine core
+
+- **The engine is channel-based, not fixture/attribute-based.** Fixture ->
+  DMX-address resolution stays in the frontend (which already owns the
+  fixture library); only the resolved (channel, is-it-HTP) result and a
+  fixture-number index cross into Rust. See docs/ENGINE.md. This kept the
+  merge/tick/programmer genuinely simple and testable instead of duplicating
+  fixture-library logic in Rust.
+- **Fixture numbers for the command line are just 1-based patch order**, not
+  a stored/assignable ID — real fixture ID numbering is explicitly a Phase 4
+  Patch-screen task. Renumbering happens implicitly when the patch order
+  changes; that's an acceptable rough edge until Phase 4 gives fixtures a
+  real, stable number.
+- **GROUP/RECORD CUE/UPDATE/DELETE CUE/COPY/MOVE parse but don't execute.**
+  Groups (Phase 5) and cuelists (Phase 6) don't exist yet. The parser handles
+  and unit-tests all these forms (satisfying "parser gets unit tests for
+  every form"); the executor returns a clear "not implemented yet" error
+  instead of guessing at semantics those phases haven't designed.
+- **TIME sets a stored value but doesn't yet affect `@` commands** (which
+  stay immediate/unfaded) — applying a fade time to a manual intensity set
+  needs the same timing infrastructure Phase 6's cue recording will build;
+  wiring a separate one now would be throwaway work.
+- **A finished non-looping playback keeps its last values live** rather than
+  reverting when its `RunningPlayback` stops ticking — matches `LightAsset`'s
+  own "Scenes always apply steps[0] once" contract (a persistent look, not a
+  blip). Only `stop_asset` (or re-triggering the same id) removes the layer.
+  Found by writing a test for the opposite behavior first and realizing it
+  was wrong, not by inspection.
+- **A real bug in the legacy-playback fade math**, also found by its own
+  test: a Hold-to-Fade phase transition wrote the new step's value only on
+  the *next* `advance()` call, leaving a stale value on the wire for one
+  tick. Fixed by looping through same-tick phase transitions with leftover-
+  time carryover instead of handling one transition per call.
+- **DMX input is not merged into the engine's output yet** (a decision
+  carried over from Phase 2 — see its entry above and docs/OUTPUT.md).
+- **Tauri command parameter naming:** a Rust parameter literally named
+  `loop_` (the `_` suffix worked around `loop` being a keyword) doesn't
+  reliably camelCase to a predictable JS key, so `engine_trigger_asset`'s
+  parameter is named `looped` instead — avoids relying on undocumented
+  behavior at a boundary that's easy to get subtly wrong.
