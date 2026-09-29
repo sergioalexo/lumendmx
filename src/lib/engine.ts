@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { CommandResult, EngineFrame, PatchIndexEntry } from "./showfile/generated";
+import type { CommandResult, EngineFrame, Group, PatchIndexEntry, Preset, PresetFamily } from "./showfile/generated";
 import type { LightAsset } from "./types";
 
 export function setHtpChannels(universe: number, channels: number[]): Promise<void> {
@@ -59,4 +59,57 @@ export function onUniverseFrame(cb: (frame: EngineFrame) => void) {
   return listen<EngineFrame>("engine://universe-frame", (event) => cb(event.payload));
 }
 
-export type { CommandResult, EngineFrame, PatchIndexEntry } from "./showfile/generated";
+// --- Groups (Phase 5) ---
+
+export function recordGroup(name: string, fixtureNumbers: number[]): Promise<number> {
+  return invoke("engine_record_group", { name, fixtureNumbers });
+}
+
+export function listGroups(): Promise<Group[]> {
+  return invoke("engine_list_groups");
+}
+
+export function renameGroup(id: number, name: string): Promise<void> {
+  return invoke("engine_rename_group", { id, name });
+}
+
+export function deleteGroup(id: number): Promise<void> {
+  return invoke("engine_delete_group", { id });
+}
+
+export function applyGroupMaster(id: number, percent: number): Promise<string> {
+  return invoke("engine_apply_group_master", { id, percent });
+}
+
+// --- Presets (Phase 5) ---
+
+export function recordPreset(
+  family: PresetFamily,
+  name: string,
+  fixtureNumbers: number[],
+  color?: string,
+): Promise<number> {
+  return invoke("engine_record_preset", { family, name, fixtureNumbers, color: color ?? null });
+}
+
+export function updatePreset(id: number, fixtureNumbers: number[], color?: string): Promise<void> {
+  return invoke("engine_update_preset", { id, fixtureNumbers, color: color ?? null });
+}
+
+export function renamePreset(id: number, name: string): Promise<void> {
+  return invoke("engine_rename_preset", { id, name });
+}
+
+export function deletePreset(id: number): Promise<void> {
+  return invoke("engine_delete_preset", { id });
+}
+
+export function listPresets(family?: PresetFamily): Promise<Preset[]> {
+  return invoke("engine_list_presets", { family: family ?? null });
+}
+
+export function applyPreset(id: number, fixtureNumbers: number[]): Promise<number> {
+  return invoke("engine_apply_preset", { id, fixtureNumbers });
+}
+
+export type { CommandResult, EngineFrame, Group, PatchIndexEntry, Preset, PresetFamily } from "./showfile/generated";

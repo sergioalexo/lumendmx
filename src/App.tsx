@@ -8,6 +8,7 @@ import { ProgrammerPanel } from "./components/ProgrammerPanel";
 import { CommandLine } from "./components/CommandLine";
 import { LiveAiConsole } from "./components/LiveAiConsole";
 import { SetupPanel } from "./components/SetupPanel";
+import { PalettesPanel } from "./components/PalettesPanel";
 import { Button } from "./components/ui/button";
 import { cn } from "./lib/utils";
 import { useDmxStore } from "./store/useDmxStore";
@@ -17,7 +18,7 @@ import { useShowStore } from "./store/useShowStore";
 import { useUniverseStatusesStore } from "./store/useUniverseStatusesStore";
 import { useUniverseChannelsStore } from "./store/useUniverseChannelsStore";
 
-type MainView = "fixtures" | "cues" | "setup";
+type MainView = "fixtures" | "cues" | "palettes" | "setup";
 
 function App() {
   const init = useDmxStore((s) => s.init);
@@ -43,7 +44,7 @@ function App() {
       <div className="flex flex-1 overflow-hidden">
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex gap-1 border-b border-border px-4 py-2">
-            {(["fixtures", "cues", "setup"] as MainView[]).map((view) => (
+            {(["fixtures", "cues", "palettes", "setup"] as MainView[]).map((view) => (
               <Button
                 key={view}
                 size="sm"
@@ -51,7 +52,13 @@ function App() {
                 className={cn("uppercase", mainView !== view && "text-muted-foreground")}
                 onClick={() => setMainView(view)}
               >
-                {view === "fixtures" ? "Fixtures" : view === "cues" ? "Cues" : "Setup"}
+                {view === "fixtures"
+                  ? "Fixtures"
+                  : view === "cues"
+                    ? "Cues"
+                    : view === "palettes"
+                      ? "Palettes"
+                      : "Setup"}
               </Button>
             ))}
           </div>
@@ -60,6 +67,8 @@ function App() {
               <FixturePatchPanel />
             ) : mainView === "cues" ? (
               <TriggerGrid />
+            ) : mainView === "palettes" ? (
+              <PalettesPanel />
             ) : (
               <SetupPanel />
             )}

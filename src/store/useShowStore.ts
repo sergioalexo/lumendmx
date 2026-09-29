@@ -239,8 +239,8 @@ useLibraryStore.subscribe(markDirtyUnlessApplyingShow);
 
 /** Pushes the current patch to the engine as (a) which channels are HTP
  * (a fixture's dimmer channel) for the merge, per universe, and (b) the
- * fixture-number -> intensity-channel index the command line's
- * `1 THRU 8 @ 50` resolves against. */
+ * fixture-number -> attribute-channel index the command line's
+ * `1 THRU 8 @ 50` and Phase 5's presets resolve against. */
 function syncEnginePatch(): void {
   const fixtures = usePatchStore.getState().fixtures;
   const allFixtures = getAllFixtures();
@@ -250,6 +250,7 @@ function syncEnginePatch(): void {
     const def = allFixtures.find((f) => f.id === instance.fixtureId);
     const mode = def?.modes[instance.modeIndex];
     let intensityChannel: number | null = null;
+    const attributeChannels: Record<string, number> = {};
     if (mode) {
       let htpChannels = htpChannelsByUniverse.get(instance.universe);
       if (!htpChannels) {
@@ -262,9 +263,17 @@ function syncEnginePatch(): void {
           htpChannels.add(channel);
           if (intensityChannel === null) intensityChannel = channel;
         }
+        // First occurrence of each attribute wins, matching the patch
+        // panel's own unionChannels() convention for multi-channel fixtures.
+        if (!(ch.type in attributeChannels)) attributeChannels[ch.type] = channel;
       }
     }
-    return { fixtureNumber: instance.fixtureNumber, universe: instance.universe, intensityChannel };
+    return {
+      fixtureNumber: instance.fixtureNumber,
+      universe: instance.universe,
+      intensityChannel,
+      attributeChannels,
+    };
   });
 
   for (const [universe, htpChannels] of htpChannelsByUniverse) {
