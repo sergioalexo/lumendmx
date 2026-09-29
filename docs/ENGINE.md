@@ -63,13 +63,57 @@ actually removes a layer.
   DECISIONS.md for what a preset apply and a "group master" fader are (and
   aren't).
 
+## Cuelists and playback (Phase 6)
+
+- `engine::cues::{Cuelist, Cue, CueValue}`: a cuelist is a `Vec<Cue>` kept
+  sorted by (possibly decimal) cue number. A cue's value per channel is
+  either `Literal(f32)` or `Preset { preset_id, attribute }` — the latter
+  reuses `apply_preset`'s "resolve by id, never copy" pattern, so updating a
+  preset changes every cue that references it, immediately, with no
+  propagation step. `resolve_cue_state` computes a cue's effective state
+  fresh on every call: with `tracking` on, it layers cues `0..=index`
+  (a later cue's value for the same channel wins); with tracking off, just
+  the cue's own values. This is deliberately *not* cached — editing an
+  earlier cue immediately changes what every later cue tracks in.
+- `engine::playback::PlaybackRuntime`: a running instance of a cuelist —
+  GO/Back/Release, a time-based crossfade (`FaderMode::IntensityMaster`,
+  the fader scales only HTP/intensity channels) or a manual crossfade
+  fader (`FaderMode::Crossfade`), and for a `CuelistKind::Chase`, BPM-driven
+  auto-advance (Forward/Bounce/Random). Multiple playbacks can run the same
+  or different cuelists concurrently — `EngineManager::create_playback`
+  hands out a fresh id and priority per slot.
+- Cue playbacks render into `EngineState.playbacks` — the **same** map
+  legacy Scene/Chase/FX assets use — keyed by `"cue-playback-{id}"` instead
+  of the legacy asset's own id, so both go through identical HTP/LTP merge
+  logic with no separate code path. A `CuelistKind::Override` playback gets
+  a priority at or above `manager::OVERRIDE_PRIORITY_BASE`
+  (1,000,000,000), below the programmer's `i64::MAX` but above every
+  standard/chase playback and legacy asset, so it always wins LTP
+  regardless of trigger order.
+- `CuelistKind::Submaster`: no GO/cue-stepping; `create_playback` puts it on
+  cue 0 immediately and its fader directly scales that (tracked) state.
+  `CuelistKind::Timecode` behaves like `Standard` (manual GO only) — nothing
+  drives it from an external clock yet; LTC/MTC input is Phase 8.
+- The command line's `RECORD CUE`/`UPDATE`/`DELETE CUE`/`NEXT`/`PREV` are
+  now live: they operate against whichever cuelist
+  `engine_set_current_cuelist` last selected (the Cuelists tab calls this
+  when you open a cuelist) and, for `RECORD CUE`, the command line's own
+  selection + `TIME` value (`RECORD CUE`'s fade-in/out both come from the
+  last `TIME n` — there's no separate in/out syntax). `UPDATE` re-captures
+  whichever cue number `RECORD CUE` last touched (the grammar gives it no
+  number of its own). `NEXT`/`PREV` step the first playback slot attached
+  to the current cuelist; if none exists yet, they return a clear error
+  rather than silently doing nothing. `COPY`/`MOVE` still parse (and are
+  unit-tested) but stay unimplemented — the existing grammar gives them no
+  target-number argument, and inventing one isn't this phase's call to
+  make; see DECISIONS.md.
+- `CueDto`/`CuelistDto`/`CueValueEntry` flatten `Cue.values`'s
+  `HashMap<(u32,u16), CueValue>` into a plain list crossing the Tauri
+  boundary, the same reason `PatchIndexEntry` exists — JSON object keys
+  must be strings, and a `(universe, channel)` tuple isn't one.
+
 ## What isn't here yet
 
-- **Cuelists** (Phase 6): the command line's `RECORD CUE`/`UPDATE`/`DELETE
-  CUE`/`COPY`/`MOVE` all parse correctly (and are unit-tested) but execute as
-  a clear "not implemented yet" error. Guessing at semantics that phase
-  hasn't designed would just mean redoing it. `apply_preset`'s lookup-by-id
-  pattern is what a recorded cue referencing a preset will reuse.
 - **An attribute encoder bar / full manual programmer UI**: `CommandLine.tsx`
   is the only manual programmer surface today. The Onyx-style attribute bar
   (BUILD_PLAN section 2) is progressive UI work built up as later phases add
