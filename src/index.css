@@ -88,6 +88,12 @@
  * the `dark` class (see index.html), the light tokens above only exist so
  * this file stays a drop-in match for the shared design system. */
 .dark {
+  /* Without this, native controls (the <select> dropdown popup, scrollbars, date
+   * pickers) render with the OS's light theme by default -- the popup background
+   * stays white while our light `--foreground` text color still applies to the
+   * <option>s, making dropdown options invisible (white-on-white). */
+  color-scheme: dark;
+
   --background: 240 10% 5%;
   --foreground: 0 0% 95%;
   --card: 240 8% 8%;
