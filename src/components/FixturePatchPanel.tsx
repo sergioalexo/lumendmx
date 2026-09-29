@@ -1,10 +1,16 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Trash2, X } from "lucide-react";
+import * as engineApi from "../lib/engine";
 import { useDmxStore } from "../store/useDmxStore";
 import { usePatchStore, type PatchedFixture } from "../store/usePatchStore";
 import { useAllFixtures, useFixtureLibraryStore } from "../store/useFixtureLibraryStore";
+import { EMPTY_UNIVERSES, useShowStore } from "../store/useShowStore";
+import { getUniverseChannel, useUniverseChannelsStore } from "../store/useUniverseChannelsStore";
 import type { ChannelType, FixtureDefinition, FixtureMode } from "../lib/fixtures/types";
 import { validateFixtureDefinition } from "../lib/fixtures/validate";
+import { importOfl } from "../lib/fixtures/importers/ofl";
+import { importQlcPlus } from "../lib/fixtures/importers/qlcplus";
+import { FixtureEditor } from "./FixtureEditor";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Select } from "./ui/input";
@@ -35,17 +41,54 @@ function resolve(instance: PatchedFixture, all: FixtureDefinition[]): ResolvedFi
   return def && mode ? { instance, def, mode } : null;
 }
 
-/** Reads a patched fixture's live channel values straight from the shared DMX
- * universe -- the single source of truth -- instead of a separate copy of state,
- * so the grid tile's color and the detail sliders can never drift from what's
- * actually being sent to the fixture. */
+function addressSpan(fixtures: PatchedFixture[], allFixtures: FixtureDefinition[], universe: number) {
+  return fixtures
+    .filter((f) => f.universe === universe)
+    .map((f) => {
+      const mode = findFixture(allFixtures, f.fixtureId)?.modes[f.modeIndex];
+      const count = mode?.channelCount ?? 1;
+      return { fixture: f, start: f.address, end: f.address + count - 1 };
+    });
+}
+
+/** Fixtures in `universe` whose address range overlaps [address, address+channelCount-1]. */
+function findCollisions(
+  fixtures: PatchedFixture[],
+  allFixtures: FixtureDefinition[],
+  universe: number,
+  address: number,
+  channelCount: number,
+  excludeId?: string,
+): PatchedFixture[] {
+  const end = address + channelCount - 1;
+  return addressSpan(fixtures, allFixtures, universe)
+    .filter((s) => s.fixture.id !== excludeId && address <= s.end && s.start <= end)
+    .map((s) => s.fixture);
+}
+
+/** Suggests the first free address in `universe` that fits `channelCount`
+ * channels without overlapping anything already patched there. */
+function nextFreeAddress(fixtures: PatchedFixture[], allFixtures: FixtureDefinition[], universe: number, channelCount: number): number {
+  const spans = addressSpan(fixtures, allFixtures, universe).sort((a, b) => a.start - b.start);
+  let candidate = 1;
+  for (const span of spans) {
+    if (candidate + channelCount - 1 < span.start) break;
+    if (candidate <= span.end) candidate = span.end + 1;
+  }
+  return Math.min(candidate, 512);
+}
+
+/** Reads a patched fixture's live channel values from its own universe's
+ * engine frame -- the single source of truth -- instead of a separate copy of
+ * state, so the grid tile's color and the detail sliders can never drift from
+ * what's actually being sent to the fixture. */
 function useFixtureChannelValues(instance: PatchedFixture, mode: FixtureMode | undefined) {
-  const channels = useDmxStore((s) => s.channels);
+  const channels = useUniverseChannelsStore((s) => s.channels[instance.universe]);
   const values: Record<number, number> = {};
   if (!mode) return values;
   for (const ch of mode.channels) {
     const idx = instance.address + ch.offset - 1;
-    values[ch.offset] = idx >= 0 && idx < channels.length ? channels[idx] : 0;
+    values[ch.offset] = idx >= 0 && channels && idx < channels.length ? channels[idx] : 0;
   }
   return values;
 }
@@ -86,12 +129,13 @@ function swatchColor(mode: FixtureMode, values: Record<number, number>): string 
 
 export function FixturePatchPanel() {
   const connected = useDmxStore((s) => s.status.connected);
-  const applyPatch = useDmxStore((s) => s.applyPatch);
-  const liveChannels = useDmxStore((s) => s.channels);
 
-  const { fixtures, addFixture, removeFixture } = usePatchStore();
+  const { fixtures, addFixture, removeFixture, repatch, nextFixtureNumber } = usePatchStore();
   const addCustomFixture = useFixtureLibraryStore((s) => s.addCustomFixture);
+  const customFixtures = useFixtureLibraryStore((s) => s.customFixtures);
   const allFixtures = useAllFixtures();
+  const universes = useShowStore((s) => s.meta?.universes ?? EMPTY_UNIVERSES);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selected = fixtures.filter((f) => selectedIds.includes(f.id));
@@ -100,14 +144,33 @@ export function FixturePatchPanel() {
     .filter((r): r is ResolvedFixture => r !== null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const oflInputRef = useRef<HTMLInputElement>(null);
+  const qlcInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
   const [newFixtureId, setNewFixtureId] = useState(allFixtures[0]?.id ?? "");
   const [newModeIndex, setNewModeIndex] = useState(0);
+  const [newUniverse, setNewUniverse] = useState(universes[0]?.id ?? 1);
   const [newAddress, setNewAddress] = useState(1);
+  const [addressTouched, setAddressTouched] = useState(false);
+  const [newFixtureNumber, setNewFixtureNumber] = useState(nextFixtureNumber());
   const [newName, setNewName] = useState("");
 
   const newFixtureDef = findFixture(allFixtures, newFixtureId);
+  const newMode = newFixtureDef?.modes[newModeIndex];
+
+  // Keep the suggested address/fixture number fresh as the form's other
+  // fields change, unless the user has already typed their own address.
+  useEffect(() => {
+    if (!newMode || addressTouched) return;
+    setNewAddress(nextFreeAddress(fixtures, allFixtures, newUniverse, newMode.channelCount));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newFixtureId, newModeIndex, newUniverse, fixtures.length]);
+
+  const collisions =
+    newMode && newFixtureDef
+      ? findCollisions(fixtures, allFixtures, newUniverse, newAddress, newMode.channelCount)
+      : [];
 
   const handleImport = async (file: File) => {
     setImportError(null);
@@ -124,6 +187,23 @@ export function FixturePatchPanel() {
     }
   };
 
+  const handleFormatImport = async (file: File, importer: (input: string) => FixtureDefinition) => {
+    setImportError(null);
+    try {
+      const def = importer(await file.text());
+      const errors = validateFixtureDefinition(def);
+      if (errors.length > 0) {
+        setImportError(errors.join("; "));
+        return;
+      }
+      addCustomFixture(def);
+      setNewFixtureId(def.id);
+      setNewModeIndex(0);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleAdd = () => {
     const def = findFixture(allFixtures, newFixtureId);
     const mode = def?.modes[newModeIndex];
@@ -133,7 +213,12 @@ export function FixturePatchPanel() {
       fixtureId: def.id,
       modeIndex: newModeIndex,
       address: newAddress,
+      universe: newUniverse,
+      fixtureNumber: newFixtureNumber,
       name: newName.trim() || `${def.model} @${newAddress}`,
+      invertPan: false,
+      invertTilt: false,
+      swapPanTilt: false,
     });
 
     // Pin any function/mode-select channel to its safe "obey DMX" value right
@@ -143,10 +228,12 @@ export function FixturePatchPanel() {
       if (ch.defaultValue !== undefined) defaults[newAddress + ch.offset - 1] = ch.defaultValue;
     }
     if (Object.keys(defaults).length > 0) {
-      void applyPatch(defaults);
+      void engineApi.setChannels(newUniverse, defaults);
     }
 
     setNewName("");
+    setAddressTouched(false);
+    setNewFixtureNumber(fixture.fixtureNumber + 1);
     setSelectedIds([fixture.id]);
   };
 
@@ -168,7 +255,7 @@ export function FixturePatchPanel() {
       )}
 
       <div className="flex shrink-0 flex-col gap-3 rounded-md border border-border p-3">
-        <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-6">
           <label className="flex flex-col gap-1">
             Fixture
             <Select
@@ -176,6 +263,7 @@ export function FixturePatchPanel() {
               onChange={(e) => {
                 setNewFixtureId(e.target.value);
                 setNewModeIndex(0);
+                setAddressTouched(false);
               }}
             >
               {allFixtures.map((f) => (
@@ -187,10 +275,27 @@ export function FixturePatchPanel() {
           </label>
           <label className="flex flex-col gap-1">
             Mode
-            <Select value={newModeIndex} onChange={(e) => setNewModeIndex(Number(e.target.value))}>
+            <Select
+              value={newModeIndex}
+              onChange={(e) => {
+                setNewModeIndex(Number(e.target.value));
+                setAddressTouched(false);
+              }}
+            >
               {newFixtureDef?.modes.map((m, i) => (
                 <option key={m.name} value={i}>
                   {m.name} ({m.channelCount}ch)
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1">
+            Universe
+            <Select value={newUniverse} onChange={(e) => setNewUniverse(Number(e.target.value))}>
+              {universes.length === 0 && <option value={1}>Universe 1</option>}
+              {universes.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
                 </option>
               ))}
             </Select>
@@ -202,7 +307,19 @@ export function FixturePatchPanel() {
               min={1}
               max={512}
               value={newAddress}
-              onChange={(e) => setNewAddress(Number(e.target.value) || 1)}
+              onChange={(e) => {
+                setAddressTouched(true);
+                setNewAddress(Number(e.target.value) || 1);
+              }}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            Fixture #
+            <Input
+              type="number"
+              min={1}
+              value={newFixtureNumber}
+              onChange={(e) => setNewFixtureNumber(Number(e.target.value) || 1)}
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -214,12 +331,26 @@ export function FixturePatchPanel() {
             />
           </label>
         </div>
-        <div className="flex items-center gap-2">
+        {collisions.length > 0 && (
+          <p className="text-xs text-destructive">
+            Address conflict with {collisions.map((c) => c.name).join(", ")} — pick a different address.
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={handleAdd} disabled={!newFixtureDef}>
             Add to patch
           </Button>
           <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()}>
             Import fixture JSON
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => oflInputRef.current?.click()}>
+            Import OFL
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => qlcInputRef.current?.click()}>
+            Import QLC+ (.qxf)
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditorOpen(true)}>
+            {newFixtureDef && customFixtures.some((f) => f.id === newFixtureDef.id) ? "Edit fixture" : "New fixture"}
           </Button>
           <input
             ref={fileInputRef}
@@ -229,6 +360,28 @@ export function FixturePatchPanel() {
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) void handleImport(file);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={oflInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleFormatImport(file, importOfl);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={qlcInputRef}
+            type="file"
+            accept=".qxf,application/xml,text/xml"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleFormatImport(file, importQlcPlus);
               e.target.value = "";
             }}
           />
@@ -282,8 +435,11 @@ export function FixturePatchPanel() {
         {resolvedSelected.length > 0 && (
           <FixtureDetailPanel
             resolved={resolvedSelected}
-            liveChannels={liveChannels}
+            allFixtures={allFixtures}
+            fixtures={fixtures}
+            universes={universes}
             onClose={() => setSelectedIds([])}
+            onRepatch={repatch}
             onRemove={
               resolvedSelected.length === 1
                 ? () => {
@@ -295,6 +451,13 @@ export function FixturePatchPanel() {
           />
         )}
       </div>
+
+      {editorOpen && (
+        <FixtureEditor
+          initial={newFixtureDef && customFixtures.some((f) => f.id === newFixtureDef.id) ? newFixtureDef : undefined}
+          onClose={() => setEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -336,7 +499,7 @@ function FixtureTile({
       )}
     >
       <span className="w-fit rounded bg-black/50 px-1 text-[10px] font-semibold text-white">
-        {instance.address}
+        #{instance.fixtureNumber} · {instance.address}
       </span>
       <span className="truncate rounded bg-black/50 px-1 text-[10px] text-white">
         {instance.name}
@@ -360,48 +523,65 @@ function unionChannels(resolved: ResolvedFixture[]) {
 
 function FixtureDetailPanel({
   resolved,
-  liveChannels,
+  allFixtures,
+  fixtures,
+  universes,
   onClose,
   onRemove,
+  onRepatch,
 }: {
   resolved: ResolvedFixture[];
-  liveChannels: Uint8Array;
+  allFixtures: FixtureDefinition[];
+  fixtures: PatchedFixture[];
+  universes: { id: number; name: string }[];
   onClose: () => void;
   onRemove?: () => void;
+  onRepatch: (id: string, changes: Partial<Pick<PatchedFixture, "address" | "universe" | "invertPan" | "invertTilt" | "swapPanTilt">>) => void;
 }) {
-  const applyPatch = useDmxStore((s) => s.applyPatch);
   const isGroup = resolved.length > 1;
   const channels = unionChannels(resolved);
+  const single = !isGroup ? resolved[0] : null;
+  const hasPan = resolved.some(({ mode }) => mode.channels.some((c) => c.type === "pan"));
+  const hasTilt = resolved.some(({ mode }) => mode.channels.some((c) => c.type === "tilt"));
 
   const valueOf = (type: ChannelType): number => {
     for (const { instance, mode } of resolved) {
       const ch = mode.channels.find((c) => c.type === type);
-      if (ch) {
-        const idx = instance.address + ch.offset - 1;
-        if (idx >= 0 && idx < liveChannels.length) return liveChannels[idx];
-      }
+      if (ch) return getUniverseChannel(instance.universe, instance.address + ch.offset - 1);
     }
     return 0;
   };
 
-  const setValue = (type: ChannelType, value: number) => {
-    const patch: Record<number, number> = {};
+  /** Builds a per-fixture channel patch from `pick`, groups it by universe
+   * (a multi-select can span universes), and sends each group to the engine. */
+  const applyAcrossUniverses = (pick: (instance: PatchedFixture, mode: FixtureMode) => Record<number, number>) => {
+    const byUniverse = new Map<number, Record<number, number>>();
     for (const { instance, mode } of resolved) {
-      const ch = mode.channels.find((c) => c.type === type);
-      if (ch) patch[instance.address + ch.offset - 1] = value;
+      const patch = pick(instance, mode);
+      if (Object.keys(patch).length === 0) continue;
+      const bucket = byUniverse.get(instance.universe) ?? {};
+      Object.assign(bucket, patch);
+      byUniverse.set(instance.universe, bucket);
     }
-    void applyPatch(patch);
+    for (const [universe, patch] of byUniverse) void engineApi.setChannels(universe, patch);
+  };
+
+  const setValue = (type: ChannelType, value: number) => {
+    applyAcrossUniverses((instance, mode) => {
+      const ch = mode.channels.find((c) => c.type === type);
+      return ch ? { [instance.address + ch.offset - 1]: value } : {};
+    });
   };
 
   const applyPreset = (types: ChannelType[]) => {
-    const patch: Record<number, number> = {};
-    for (const { instance, mode } of resolved) {
+    applyAcrossUniverses((instance, mode) => {
+      const patch: Record<number, number> = {};
       for (const ch of mode.channels) {
         patch[instance.address + ch.offset - 1] =
           ch.type === "function" ? (ch.defaultValue ?? 0) : types.includes(ch.type) ? 255 : 0;
       }
-    }
-    void applyPatch(patch);
+      return patch;
+    });
   };
 
   return (
@@ -412,17 +592,19 @@ function FixtureDetailPanel({
             <div className="text-sm font-medium">{resolved.length} fixtures selected</div>
           ) : (
             <>
-              <div className="text-sm font-medium">{resolved[0].instance.name}</div>
+              <div className="text-sm font-medium">
+                #{single?.instance.fixtureNumber} {single?.instance.name}
+              </div>
               <div className="text-xs text-muted-foreground">
-                {resolved[0].def.manufacturer} {resolved[0].def.model} · {resolved[0].mode.name} ·
-                addr {resolved[0].instance.address}
+                {single?.def.manufacturer} {single?.def.model} · {single?.mode.name} · U{single?.instance.universe} ·
+                addr {single?.instance.address}
               </div>
             </>
           )}
         </div>
         <div className="flex shrink-0 gap-1">
           {onRemove && (
-            <Button size="iconSm" variant="ghost" onClick={onRemove} title="Remove">
+            <Button size="iconSm" variant="ghost" onClick={onRemove} title="Unpatch">
               <Trash2 />
             </Button>
           )}
@@ -431,6 +613,52 @@ function FixtureDetailPanel({
           </Button>
         </div>
       </div>
+
+      {single && (
+        <RepatchForm
+          instance={single.instance}
+          channelCount={single.mode.channelCount}
+          fixtures={fixtures}
+          allFixtures={allFixtures}
+          universes={universes}
+          onRepatch={onRepatch}
+        />
+      )}
+
+      {(hasPan || hasTilt) && single && (
+        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+          {hasPan && (
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={single.instance.invertPan}
+                onChange={(e) => onRepatch(single.instance.id, { invertPan: e.target.checked })}
+              />
+              Invert pan
+            </label>
+          )}
+          {hasTilt && (
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={single.instance.invertTilt}
+                onChange={(e) => onRepatch(single.instance.id, { invertTilt: e.target.checked })}
+              />
+              Invert tilt
+            </label>
+          )}
+          {hasPan && hasTilt && (
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={single.instance.swapPanTilt}
+                onChange={(e) => onRepatch(single.instance.id, { swapPanTilt: e.target.checked })}
+              />
+              Swap pan/tilt
+            </label>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         {channels.map((ch) => (
@@ -458,6 +686,61 @@ function FixtureDetailPanel({
           </Button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function RepatchForm({
+  instance,
+  channelCount,
+  fixtures,
+  allFixtures,
+  universes,
+  onRepatch,
+}: {
+  instance: PatchedFixture;
+  channelCount: number;
+  fixtures: PatchedFixture[];
+  allFixtures: FixtureDefinition[];
+  universes: { id: number; name: string }[];
+  onRepatch: (id: string, changes: Partial<Pick<PatchedFixture, "address" | "universe">>) => void;
+}) {
+  const [universe, setUniverse] = useState(instance.universe);
+  const [address, setAddress] = useState(instance.address);
+
+  useEffect(() => {
+    setUniverse(instance.universe);
+    setAddress(instance.address);
+  }, [instance.id, instance.universe, instance.address]);
+
+  const collisions = findCollisions(fixtures, allFixtures, universe, address, channelCount, instance.id);
+  const changed = universe !== instance.universe || address !== instance.address;
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded border border-border p-2">
+      <div className="flex items-center gap-2 text-xs">
+        <label className="flex flex-1 flex-col gap-1">
+          Universe
+          <Select value={universe} onChange={(e) => setUniverse(Number(e.target.value))}>
+            {universes.length === 0 && <option value={instance.universe}>Universe {instance.universe}</option>}
+            {universes.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="flex flex-1 flex-col gap-1">
+          Address
+          <Input type="number" min={1} max={512} value={address} onChange={(e) => setAddress(Number(e.target.value) || 1)} />
+        </label>
+      </div>
+      {collisions.length > 0 && (
+        <p className="text-xs text-destructive">Conflicts with {collisions.map((c) => c.name).join(", ")}</p>
+      )}
+      <Button size="sm" variant="secondary" disabled={!changed} onClick={() => onRepatch(instance.id, { universe, address })}>
+        Re-patch
+      </Button>
     </div>
   );
 }

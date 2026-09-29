@@ -122,3 +122,44 @@ One line (or a short paragraph) per call made without stopping to ask, per
   reliably camelCase to a predictable JS key, so `engine_trigger_asset`'s
   parameter is named `looped` instead — avoids relying on undocumented
   behavior at a boundary that's easy to get subtly wrong.
+
+## Phase 4 — Fixture library and patch
+
+- **Did not bundle "thousands of OFL fixtures."** Actually fetching,
+  validating and vetting thousands of real fixture files isn't practical to
+  do one-by-one here. What's real instead: a genuine OFL JSON importer and a
+  genuine QLC+ `.qxf` importer, each built against real fixture data and unit
+  tested, so a user can import any OFL/QLC+ fixture file directly (or drop
+  OFL JSON files into `src/fixtures/library/` the same way a custom fixture
+  works today). Only the small bundled set stays checked into the repo.
+- **`FixtureChannel.capabilities` is additive, not a replacement for
+  `type`.** A channel whose DMX range does one thing across its whole range
+  (most of our own hand-authored fixtures) just keeps using `type`; only
+  channels that actually subdivide (wheels, strobe, function-select) carry a
+  `capabilities` array. Full row-for-row capability modeling everywhere would
+  have meant rewriting every place that currently reads `ch.type` (color
+  swatches, the engine's HTP classification, sliders) for no real gain on
+  fixtures that don't need it.
+- **Matrix/pixel fixtures are rejected, not partially supported.** Both
+  importers refuse OFL `matrix`/`templateChannels` fixtures and note that
+  full per-pixel addressing is Phase 7's Pixel Map — a `cell` field exists on
+  `FixtureChannel` for later, but nothing resolves it yet.
+- **QLC+ color/gobo specifics are inferred from the channel's own name**
+  when the group is generically "Colour"/"Gobo" — QLC+'s format doesn't
+  carry OFL's structured color-name/wheel-slot data, so this is an honest
+  limitation of the source format, not a shortcut in the importer.
+- **Fixture numbers are now real, user-assignable, and persisted**
+  (`PatchedFixture.fixtureNumber`, schema v3), replacing Phase 3's "just
+  patch order" placeholder. Existing v2 shows migrate by assigning numbers
+  in patch order, so nothing renumbers on upgrade.
+- **Per-fixture universe assignment** (`PatchedFixture.universe`, schema v3)
+  replaces the implicit "everything is universe 1" from Phases 1-3.
+- **The "patch by drag onto a universe grid" view wasn't built.** Address
+  collision detection, auto-addressing, re-patch and universe assignment (the
+  parts that actually prevent mistakes) were prioritized over a visual drag
+  interaction, which is additive UI polish on top of the same underlying
+  operations.
+- **Live channel display for patched fixtures now reads per-universe engine
+  frames** (`useUniverseChannelsStore`), not just the primary universe's
+  buffer — needed once a fixture could be patched to any universe, not only
+  the first one.

@@ -15,7 +15,7 @@ use crate::output::config::DriverConfig;
 
 /// Bump this whenever `ShowFile`'s on-disk shape changes, and add an upgrade
 /// step in `migrate.rs` from the previous version.
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +39,16 @@ pub struct PatchedFixture {
     /// DMX start address, 1-512.
     pub address: u16,
     pub name: String,
+    /// v3: which universe this fixture is patched into. Every fixture was
+    /// implicitly universe 1 before Setup could manage more than one (see
+    /// `migrate::upgrade_2_to_3`).
+    pub universe: u32,
+    /// v3: a stable, user-assignable number for the command line's `1 THRU 8`
+    /// etc. to reference — replaces Phase 3's "just patch order" placeholder.
+    pub fixture_number: u32,
+    pub invert_pan: bool,
+    pub invert_tilt: bool,
+    pub swap_pan_tilt: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

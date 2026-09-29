@@ -52,16 +52,18 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
         ports,
         ready: true,
       });
-      void dmx.onUniverseStatusChanged((s) => {
-        if (s.universeId === PRIMARY_UNIVERSE_ID) set({ status: s });
-      });
-      // The engine pushes the merged universe at ~20Hz (BUILD_PLAN Phase 3);
-      // that's the live display source of truth now, not a raw output read.
-      void engine.onUniverseFrame((frame) => {
-        if (frame.universeId === PRIMARY_UNIVERSE_ID) {
-          set({ channels: Uint8Array.from(frame.channels) });
-        }
-      });
+      await Promise.all([
+        dmx.onUniverseStatusChanged((s) => {
+          if (s.universeId === PRIMARY_UNIVERSE_ID) set({ status: s });
+        }),
+        // The engine pushes the merged universe at ~20Hz (BUILD_PLAN Phase 3);
+        // that's the live display source of truth now, not a raw output read.
+        engine.onUniverseFrame((frame) => {
+          if (frame.universeId === PRIMARY_UNIVERSE_ID) {
+            set({ channels: Uint8Array.from(frame.channels) });
+          }
+        }),
+      ]);
     } catch (err) {
       // Expected when the UI is opened outside the Tauri runtime (e.g. a plain
       // browser preview during frontend development) -- the Rust backend simply

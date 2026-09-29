@@ -62,3 +62,19 @@ drive. Check these off by hand; each entry says which phase added it.
       Scenes that both touch the same par's dimmer and a color channel;
       confirm dimmer shows the brighter one (HTP) and color shows whichever
       was triggered more recently (LTP), matching engine::merge's tests.
+
+## Phase 4 — Fixture library and patch
+
+- [ ] **Patch a real OFL moving head.** Fetch a real fixture's OFL JSON
+      (there's no moving head on this rig — see FIXTURES.md), import it via
+      "Import OFL", patch it, and confirm dimmer/pan/tilt/color-wheel/gobo
+      channels actually move the fixture correctly — the importer's own
+      correctness is unit-tested, but real hardware interpreting the
+      resulting channel values is not.
+- [ ] **Re-verify the 4 pars after the patch-panel rewrite.** The live
+      channel display now reads per-universe engine frames instead of the
+      old single-universe buffer read; confirm the pars' sliders/color
+      presets still drive real DMX output correctly on the rig.
+- [ ] **Try a QLC+ `.qxf` import** against a real fixture file from QLC+'s
+      own fixture repository (not just this project's test fixture) to
+      catch any real-world `.qxf` quirk the unit tests didn't cover.
