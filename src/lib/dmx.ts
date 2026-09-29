@@ -9,7 +9,13 @@ export interface ConnectionStatus {
   error: string | null;
 }
 
-export function listSerialPorts(): Promise<string[]> {
+export interface SerialPortDescriptor {
+  port_name: string;
+  /** Human-readable label (USB product/manufacturer when available). */
+  label: string;
+}
+
+export function listSerialPorts(): Promise<SerialPortDescriptor[]> {
   return invoke("list_serial_ports");
 }
 

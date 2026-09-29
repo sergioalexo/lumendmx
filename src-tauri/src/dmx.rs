@@ -9,12 +9,15 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
 pub const UNIVERSE_SIZE: usize = 512;
-const FRAME_INTERVAL: Duration = Duration::from_millis(23); // ~44Hz
+// 30Hz, matching QLC+'s Enttec Open DMX default rate for this exact class of
+// FTDI-based widget -- explicit, unhurried pacing rather than firing frames back to
+// back as fast as the writes complete, which leaves less margin for USB jitter.
+const FRAME_INTERVAL: Duration = Duration::from_micros(33_333);
 
 #[derive(Clone, Serialize)]
 pub struct ConnectionStatus {
@@ -66,10 +69,25 @@ impl DmxEngine {
         let engine_status_setter = self.status.clone();
 
         thread::spawn(move || {
+            // Windows can preempt this thread for tens of milliseconds at a time under
+            // normal scheduling; that's long enough to land mid-frame and corrupt the
+            // break/payload timing on the wire, which reads to a fixture as a brief
+            // signal glitch. Asking for a higher scheduling priority doesn't eliminate
+            // that risk, but it substantially reduces how often the OS pauses this
+            // specific thread for other work.
+            #[cfg(windows)]
+            unsafe {
+                windows_sys::Win32::System::Threading::SetThreadPriority(
+                    windows_sys::Win32::System::Threading::GetCurrentThread(),
+                    windows_sys::Win32::System::Threading::THREAD_PRIORITY_TIME_CRITICAL,
+                );
+            }
+
             let mut port: Option<Box<dyn serialport::SerialPort>> = None;
             let mut open_port_name: Option<String> = None;
 
             loop {
+                let frame_start = Instant::now();
                 let wanted = requested_port.lock().unwrap().clone();
 
                 // (Re)connect if the requested port changed, or a previous write failed
@@ -134,8 +152,14 @@ impl DmxEngine {
                         *engine_status_setter.lock().unwrap() = s.clone();
                         let _ = app.emit("dmx://connection-changed", s);
                     }
-                } else {
-                    thread::sleep(FRAME_INTERVAL);
+                }
+
+                // Pace to a steady ~30Hz regardless of whether a frame was actually
+                // written this iteration, rather than looping as fast as the writes
+                // complete.
+                let elapsed = frame_start.elapsed();
+                if elapsed < FRAME_INTERVAL {
+                    thread::sleep(FRAME_INTERVAL - elapsed);
                 }
             }
         });
@@ -154,27 +178,23 @@ fn open_dmx_port(name: &str) -> Result<Box<dyn serialport::SerialPort>, String> 
 
 /// Writes one full DMX512 frame: BREAK, MAB, start code, 512 channel bytes.
 ///
-/// `serialport` has no cross-platform "send a UART break" primitive, so we fake the
-/// break the same way most FTDI-based DMX software does: drop to a much lower baud
-/// rate and clock out a 0x00 byte, which holds the line low for far longer than the
-/// 88us DMX spec minimum, then switch back to 250000 baud for the real payload.
+/// Uses a real hardware break (`SerialPort::set_break`/`clear_break`, backed by
+/// Windows' `SetCommBreak`/`ClearCommBreak`) rather than faking one via a baud-rate
+/// switch. This matches what QLC+'s Enttec Open DMX driver does for this exact class
+/// of genuine-FTDI USB-DMX widget -- including its 110us break / 16us MAB timing --
+/// which is a known-working reference for this hardware. (An earlier theory that
+/// this adapter's chip didn't support real breaks turned out to be based on a wrong
+/// chip identification; it's genuine FTDI, confirmed via Device Manager.)
 fn write_dmx_frame(
     port: &mut dyn serialport::SerialPort,
     universe: &[u8; UNIVERSE_SIZE],
 ) -> Result<(), std::io::Error> {
-    // ~176us break: at 12500 baud one bit is 80us, so one 0x00 byte (10 bits w/ framing)
-    // holds the line low for ~800us of actual break-equivalent signal -- comfortably
-    // over spec and matched to the PRD's 176us break requirement.
-    port.set_baud_rate(12_500)
+    port.set_break()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    port.write_all(&[0x00])?;
-    port.flush()?;
-
-    // ~12us Mark-After-Break.
-    thread::sleep(Duration::from_micros(12));
-
-    port.set_baud_rate(250_000)
+    thread::sleep(Duration::from_micros(110));
+    port.clear_break()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    thread::sleep(Duration::from_micros(16)); // Mark-After-Break
 
     let mut frame = Vec::with_capacity(1 + UNIVERSE_SIZE);
     frame.push(0x00); // DMX start code

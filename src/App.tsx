@@ -3,6 +3,7 @@ import { TopBar } from "./components/TopBar";
 import { TriggerGrid } from "./components/TriggerGrid";
 import { AiSettings } from "./components/AiSettings";
 import { SystemPanel } from "./components/SystemPanel";
+import { FixturePatchPanel } from "./components/FixturePatchPanel";
 import { ProgrammerPanel } from "./components/ProgrammerPanel";
 import { LiveAiConsole } from "./components/LiveAiConsole";
 import { useDmxStore } from "./store/useDmxStore";
@@ -27,9 +28,10 @@ function App() {
         <main className="flex-1 overflow-hidden">
           <TriggerGrid />
         </main>
-        <aside className="flex w-80 flex-col border-l border-border bg-card">
+        <aside className="flex w-80 flex-col overflow-y-auto border-l border-border bg-card">
           <AiSettings />
           <SystemPanel />
+          <FixturePatchPanel />
           <ProgrammerPanel />
           <div className="flex-1" />
           <LiveAiConsole />

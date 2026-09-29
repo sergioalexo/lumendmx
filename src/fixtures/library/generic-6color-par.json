@@ -1,0 +1,49 @@
+{
+  "id": "generic-6color-par",
+  "manufacturer": "Generic",
+  "model": "6-Color LED Par (RGBWAU)",
+  "type": "LED Par",
+  "notes": "Cheap 6-in-1 RGBWAUV par can. Confirmed against the fixture's printed manual. It stores two separate DMX start addresses on the unit itself: 'd0xx' for 6-channel mode and 'A0xx' for 10-channel mode -- make sure you program the address matching the mode you patch here.",
+  "modes": [
+    {
+      "name": "6-Channel (RGBWAU)",
+      "channelCount": 6,
+      "channels": [
+        { "offset": 1, "type": "red", "label": "Red" },
+        { "offset": 2, "type": "green", "label": "Green" },
+        { "offset": 3, "type": "blue", "label": "Blue" },
+        { "offset": 4, "type": "white", "label": "White" },
+        { "offset": 5, "type": "amber", "label": "Amber" },
+        { "offset": 6, "type": "uv", "label": "UV" }
+      ]
+    },
+    {
+      "name": "10-Channel (RGBWAUV + Strobe/Function)",
+      "channelCount": 10,
+      "channels": [
+        { "offset": 1, "type": "dimmer", "label": "Dimmer" },
+        { "offset": 2, "type": "red", "label": "Red" },
+        { "offset": 3, "type": "green", "label": "Green" },
+        { "offset": 4, "type": "blue", "label": "Blue" },
+        { "offset": 5, "type": "white", "label": "White" },
+        { "offset": 6, "type": "amber", "label": "Amber" },
+        { "offset": 7, "type": "uv", "label": "UV" },
+        { "offset": 8, "type": "strobe", "label": "Strobe" },
+        {
+          "offset": 9,
+          "type": "function",
+          "label": "Function",
+          "manualRange": [0, 50],
+          "defaultValue": 0,
+          "notes": "000-050 = plain CH1-CH8 DMX control. 051-100 = 8 built-in color presets (selected by CH10). 101-150 = jump chase. 151-200 = gradient chase. 201-250 = pulse chase. 251-255 = sound-reactive. Stay in 0-50 to keep the fixture responding to the other channels."
+        },
+        {
+          "offset": 10,
+          "type": "speed",
+          "label": "Speed",
+          "notes": "Auto-program speed; irrelevant while Function is in 0-50."
+        }
+      ]
+    }
+  ]
+}

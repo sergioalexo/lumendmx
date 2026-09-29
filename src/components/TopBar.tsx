@@ -42,8 +42,8 @@ export function TopBar() {
                 Select DMX interface…
               </option>
               {ports.map((port) => (
-                <option key={port} value={port}>
-                  {port}
+                <option key={port.port_name} value={port.port_name}>
+                  {port.label}
                 </option>
               ))}
             </Select>

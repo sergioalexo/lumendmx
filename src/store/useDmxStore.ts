@@ -6,7 +6,7 @@ interface DmxStore {
   channels: Uint8Array;
   connection: ConnectionStatus;
   blackout: boolean;
-  ports: string[];
+  ports: dmx.SerialPortDescriptor[];
   ready: boolean;
 
   init: () => Promise<void>;

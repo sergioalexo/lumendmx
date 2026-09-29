@@ -1,13 +1,45 @@
 use std::sync::atomic::Ordering;
 
+use serde::Serialize;
 use tauri::State;
 
 use crate::dmx::{ConnectionStatus, DmxEngine, UNIVERSE_SIZE};
 
+#[derive(Serialize)]
+pub struct SerialPortDescriptor {
+    pub port_name: String,
+    /// Human-readable label (USB product/manufacturer when available) so the UI
+    /// can tell the user which entry is their FTDI adapter instead of a bare COMn.
+    pub label: String,
+}
+
 #[tauri::command]
-pub fn list_serial_ports() -> Result<Vec<String>, String> {
+pub fn list_serial_ports() -> Result<Vec<SerialPortDescriptor>, String> {
     serialport::available_ports()
-        .map(|ports| ports.into_iter().map(|p| p.port_name).collect())
+        .map(|ports| {
+            ports
+                .into_iter()
+                .map(|p| {
+                    let label = match &p.port_type {
+                        serialport::SerialPortType::UsbPort(info) => {
+                            let name = info
+                                .product
+                                .as_deref()
+                                .filter(|s| !s.trim().is_empty())
+                                .or(info.manufacturer.as_deref())
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("USB {:04x}:{:04x}", info.vid, info.pid));
+                            format!("{} — {}", p.port_name, name)
+                        }
+                        _ => p.port_name.clone(),
+                    };
+                    SerialPortDescriptor {
+                        port_name: p.port_name,
+                        label,
+                    }
+                })
+                .collect()
+        })
         .map_err(|e| e.to_string())
 }
 
