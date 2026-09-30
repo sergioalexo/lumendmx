@@ -14,9 +14,11 @@ use ts_rs::TS;
 
 use super::command_line::{self, Command};
 use super::cues::{Cue, CueStore, CueValue, Cuelist, CuelistKind};
+use super::effects::{EffectConfig, EffectDirection, EffectMode, EffectRate, EffectRuntime, EffectStore, Waveform};
 use super::groups::{Group, GroupStore};
 use super::legacy_playback::{LegacyAsset, RunningPlayback};
 use super::merge::merge_universe;
+use super::pixelmap::{PixelGenerator, PixelMap, PixelMapRuntime, PixelMapStore};
 use super::playback::{FaderMode, PlaybackRuntime};
 use super::presets::{Preset, PresetFamily, PresetStore};
 use super::state::EngineState;
@@ -167,6 +169,66 @@ pub struct PlaybackStatus {
     pub paused: bool,
 }
 
+/// The (universe, channel) an effect's target attribute resolves to for one
+/// fixture, resolved once when the effect starts running (see
+/// `EngineManager::start_effect`) — same "resolve fixture selection once,
+/// not every tick" approach as a cue's own values.
+struct RunningEffect {
+    runtime: EffectRuntime,
+    targets: Vec<(u32, u16)>,
+}
+
+/// One pixel-map cell's resolved fixture channels. RGB channels are used
+/// when the fixture has them; a dimmer-only fixture falls back to the
+/// color's max component as a brightness value.
+struct CellTarget {
+    universe: u32,
+    red: Option<u16>,
+    green: Option<u16>,
+    blue: Option<u16>,
+    dimmer: Option<u16>,
+}
+
+struct RunningPixelMap {
+    runtime: PixelMapRuntime,
+    /// Parallel to the source `PixelMap.cells` — `None` for an empty cell or
+    /// one whose fixture isn't patched with a usable channel.
+    cell_targets: Vec<Option<CellTarget>>,
+}
+
+#[derive(Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
+pub struct EffectConfigInput {
+    pub name: String,
+    pub waveform: Waveform,
+    pub attribute: String,
+    pub size_percent: f32,
+    pub rate: EffectRate,
+    pub phase_spread_deg: f32,
+    pub width: f32,
+    pub direction: EffectDirection,
+    pub block_size: u32,
+    pub mirror: bool,
+    pub mode: EffectMode,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
+pub struct EffectRunStatus {
+    pub id: u32,
+    pub effect_id: u32,
+}
+
+#[derive(Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/lib/showfile/generated/")]
+pub struct PixelMapRunStatus {
+    pub id: u32,
+    pub pixelmap_id: u32,
+}
+
 pub struct EngineManager {
     state: Arc<Mutex<EngineState>>,
     playbacks: Arc<Mutex<Vec<RunningPlayback>>>,
@@ -177,6 +239,12 @@ pub struct EngineManager {
     cues: Arc<Mutex<CueStore>>,
     cue_playbacks: Arc<Mutex<Vec<PlaybackRuntime>>>,
     next_playback_id: AtomicU32,
+    effects: Arc<Mutex<EffectStore>>,
+    effect_runtimes: Arc<Mutex<Vec<RunningEffect>>>,
+    next_effect_runtime_id: AtomicU32,
+    pixelmaps: Arc<Mutex<PixelMapStore>>,
+    pixelmap_runtimes: Arc<Mutex<Vec<RunningPixelMap>>>,
+    next_pixelmap_runtime_id: AtomicU32,
     tick_started: AtomicBool,
 }
 
@@ -192,6 +260,12 @@ impl EngineManager {
             cues: Arc::new(Mutex::new(CueStore::new())),
             cue_playbacks: Arc::new(Mutex::new(Vec::new())),
             next_playback_id: AtomicU32::new(0),
+            effects: Arc::new(Mutex::new(EffectStore::new())),
+            effect_runtimes: Arc::new(Mutex::new(Vec::new())),
+            next_effect_runtime_id: AtomicU32::new(0),
+            pixelmaps: Arc::new(Mutex::new(PixelMapStore::new())),
+            pixelmap_runtimes: Arc::new(Mutex::new(Vec::new())),
+            next_pixelmap_runtime_id: AtomicU32::new(0),
             tick_started: AtomicBool::new(false),
         }
     }
@@ -208,6 +282,10 @@ impl EngineManager {
         let cues = self.cues.clone();
         let cue_playbacks = self.cue_playbacks.clone();
         let presets = self.presets.clone();
+        let effects = self.effects.clone();
+        let effect_runtimes = self.effect_runtimes.clone();
+        let pixelmaps = self.pixelmaps.clone();
+        let pixelmap_runtimes = self.pixelmap_runtimes.clone();
 
         thread::spawn(move || {
             let tick_interval = Duration::from_secs_f64(1.0 / TICK_HZ);
@@ -253,6 +331,55 @@ impl EngineManager {
                         let entry = state.playbacks.entry(key).or_insert_with(|| (pb.priority, Default::default()));
                         entry.0 = pb.priority;
                         entry.1.values = rendered;
+                    }
+
+                    // Effects (Phase 7): a running effect's already-resolved
+                    // (universe, channel) targets, rendered fresh every tick
+                    // from its live `EffectConfig` (so editing a running
+                    // effect's config takes effect immediately).
+                    let effects = effects.lock().unwrap();
+                    for running in effect_runtimes.lock().unwrap().iter_mut() {
+                        let key = format!("effect-{}", running.runtime.id);
+                        let Some(config) = effects.get(running.runtime.effect_id) else {
+                            state.playbacks.remove(&key);
+                            continue;
+                        };
+                        running.runtime.tick(dt_ms);
+                        let rendered = running.runtime.render(config, &running.targets);
+                        let entry =
+                            state.playbacks.entry(key).or_insert_with(|| (running.runtime.priority, Default::default()));
+                        entry.0 = running.runtime.priority;
+                        entry.1.values = rendered;
+                    }
+
+                    // Pixel maps (Phase 7): each cell's generated color is
+                    // resolved to its fixture's RGB channels (or dimmer, for
+                    // a dimmer-only fixture) via the cell targets captured
+                    // when the pixel map started running.
+                    let pixelmaps = pixelmaps.lock().unwrap();
+                    for running in pixelmap_runtimes.lock().unwrap().iter_mut() {
+                        let key = format!("pixelmap-{}", running.runtime.id);
+                        let Some(map) = pixelmaps.get(running.runtime.pixelmap_id) else {
+                            state.playbacks.remove(&key);
+                            continue;
+                        };
+                        running.runtime.tick(dt_ms);
+                        let colors = running.runtime.render(map);
+                        let mut values = HashMap::new();
+                        for (cell, color) in running.cell_targets.iter().zip(colors.iter()) {
+                            let Some(target) = cell else { continue };
+                            if let (Some(r), Some(g), Some(b)) = (target.red, target.green, target.blue) {
+                                values.insert((target.universe, r), color.r * 255.0);
+                                values.insert((target.universe, g), color.g * 255.0);
+                                values.insert((target.universe, b), color.b * 255.0);
+                            } else if let Some(d) = target.dimmer {
+                                values.insert((target.universe, d), color.r.max(color.g).max(color.b) * 255.0);
+                            }
+                        }
+                        let entry =
+                            state.playbacks.entry(key).or_insert_with(|| (running.runtime.priority, Default::default()));
+                        entry.0 = running.runtime.priority;
+                        entry.1.values = values;
                     }
                 }
 
@@ -831,6 +958,173 @@ impl EngineManager {
         let pb = playbacks.iter_mut().find(|p| p.id == id).ok_or_else(|| format!("No playback {id}"))?;
         pb.fader_mode = mode;
         Ok(())
+    }
+
+    // --- Effects (Phase 7) ---
+
+    pub fn create_effect(&self, input: EffectConfigInput) -> u32 {
+        self.effects.lock().unwrap().record(
+            input.name,
+            input.waveform,
+            input.attribute,
+            input.size_percent,
+            input.rate,
+            input.phase_spread_deg,
+            input.width,
+            input.direction,
+            input.block_size,
+            input.mirror,
+            input.mode,
+        )
+    }
+
+    pub fn list_effects(&self) -> Vec<EffectConfig> {
+        self.effects.lock().unwrap().list()
+    }
+
+    pub fn rename_effect(&self, id: u32, name: String) -> Result<(), String> {
+        self.effects.lock().unwrap().rename(id, name)
+    }
+
+    pub fn delete_effect(&self, id: u32) {
+        self.effects.lock().unwrap().delete(id);
+        self.effect_runtimes.lock().unwrap().retain(|r| r.runtime.effect_id != id);
+    }
+
+    /// Starts a running instance of `effect_id` across `fixture_numbers`,
+    /// resolving each fixture's channel for the effect's attribute once (in
+    /// the given order — that order is what the phase-spread fan indexes
+    /// against). For `EffectMode::Relative`, also captures each target's
+    /// current rendered value to ride on top of — the same "record what you
+    /// see" moment `record_cue`/`capture_attribute_values` use.
+    pub fn start_effect(&self, effect_id: u32, fixture_numbers: Vec<u32>) -> Result<u32, String> {
+        let config = self.effects.lock().unwrap().get(effect_id).cloned().ok_or_else(|| format!("No effect {effect_id}"))?;
+        let index = self.patch_index.lock().unwrap();
+        let targets: Vec<(u32, u16)> = fixture_numbers
+            .iter()
+            .filter_map(|n| {
+                index
+                    .iter()
+                    .find(|e| e.fixture_number == *n)
+                    .and_then(|e| e.attribute_channels.get(&config.attribute).map(|&ch| (e.universe, ch)))
+            })
+            .collect();
+        drop(index);
+        if targets.is_empty() {
+            return Err(format!("None of the selected fixtures have a '{}' channel", config.attribute));
+        }
+
+        let priority = self.state.lock().unwrap().next_priority();
+        let id = self.next_effect_runtime_id.fetch_add(1, Ordering::SeqCst);
+        let mut runtime = EffectRuntime::new(id, effect_id, priority);
+        if config.mode == EffectMode::Relative {
+            let state = self.state.lock().unwrap();
+            let mut frames: HashMap<u32, [u8; UNIVERSE_SIZE]> = HashMap::new();
+            let current: HashMap<(u32, u16), f32> = targets
+                .iter()
+                .map(|&(universe, channel)| {
+                    let frame = frames.entry(universe).or_insert_with(|| merge_universe(&state, universe));
+                    ((universe, channel), frame[(channel - 1) as usize] as f32)
+                })
+                .collect();
+            drop(state);
+            runtime.start(&targets, &current);
+        }
+        self.effect_runtimes.lock().unwrap().push(RunningEffect { runtime, targets });
+        Ok(id)
+    }
+
+    pub fn stop_effect(&self, id: u32) {
+        self.effect_runtimes.lock().unwrap().retain(|r| r.runtime.id != id);
+        self.state.lock().unwrap().playbacks.remove(&format!("effect-{id}"));
+    }
+
+    pub fn list_running_effects(&self) -> Vec<EffectRunStatus> {
+        self.effect_runtimes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| EffectRunStatus { id: r.runtime.id, effect_id: r.runtime.effect_id })
+            .collect()
+    }
+
+    // --- Pixel maps (Phase 7) ---
+
+    pub fn create_pixelmap(&self, name: String, width: u32, height: u32) -> u32 {
+        self.pixelmaps.lock().unwrap().create(name, width, height)
+    }
+
+    pub fn list_pixelmaps(&self) -> Vec<PixelMap> {
+        self.pixelmaps.lock().unwrap().list()
+    }
+
+    pub fn delete_pixelmap(&self, id: u32) {
+        self.pixelmaps.lock().unwrap().delete(id);
+        self.pixelmap_runtimes.lock().unwrap().retain(|r| r.runtime.pixelmap_id != id);
+    }
+
+    pub fn rename_pixelmap(&self, id: u32, name: String) -> Result<(), String> {
+        let mut maps = self.pixelmaps.lock().unwrap();
+        let map = maps.get_mut(id).ok_or_else(|| format!("No pixel map {id}"))?;
+        map.name = name;
+        Ok(())
+    }
+
+    pub fn set_pixelmap_cell(&self, id: u32, x: u32, y: u32, fixture_number: Option<u32>) -> Result<(), String> {
+        let mut maps = self.pixelmaps.lock().unwrap();
+        let map = maps.get_mut(id).ok_or_else(|| format!("No pixel map {id}"))?;
+        map.set_cell(x, y, fixture_number)
+    }
+
+    pub fn set_pixelmap_generator(&self, id: u32, generator: PixelGenerator) -> Result<(), String> {
+        let mut maps = self.pixelmaps.lock().unwrap();
+        let map = maps.get_mut(id).ok_or_else(|| format!("No pixel map {id}"))?;
+        map.generator = generator;
+        Ok(())
+    }
+
+    /// Starts running `pixelmap_id`, resolving every cell's fixture to its
+    /// RGB (or dimmer-only) channels once up front — the same "resolve at
+    /// start, not every tick" approach `start_effect` uses.
+    pub fn start_pixelmap(&self, pixelmap_id: u32) -> Result<u32, String> {
+        let map = self.pixelmaps.lock().unwrap().get(pixelmap_id).cloned().ok_or_else(|| format!("No pixel map {pixelmap_id}"))?;
+        let index = self.patch_index.lock().unwrap();
+        let cell_targets: Vec<Option<CellTarget>> = map
+            .cells
+            .iter()
+            .map(|cell| {
+                let fixture_number = (*cell)?;
+                let entry = index.iter().find(|e| e.fixture_number == fixture_number)?;
+                Some(CellTarget {
+                    universe: entry.universe,
+                    red: entry.attribute_channels.get("red").copied(),
+                    green: entry.attribute_channels.get("green").copied(),
+                    blue: entry.attribute_channels.get("blue").copied(),
+                    dimmer: entry.attribute_channels.get("dimmer").copied(),
+                })
+            })
+            .collect();
+        drop(index);
+
+        let priority = self.state.lock().unwrap().next_priority();
+        let id = self.next_pixelmap_runtime_id.fetch_add(1, Ordering::SeqCst);
+        let runtime = PixelMapRuntime::new(id, pixelmap_id, priority);
+        self.pixelmap_runtimes.lock().unwrap().push(RunningPixelMap { runtime, cell_targets });
+        Ok(id)
+    }
+
+    pub fn stop_pixelmap(&self, id: u32) {
+        self.pixelmap_runtimes.lock().unwrap().retain(|r| r.runtime.id != id);
+        self.state.lock().unwrap().playbacks.remove(&format!("pixelmap-{id}"));
+    }
+
+    pub fn list_running_pixelmaps(&self) -> Vec<PixelMapRunStatus> {
+        self.pixelmap_runtimes
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| PixelMapRunStatus { id: r.runtime.id, pixelmap_id: r.runtime.pixelmap_id })
+            .collect()
     }
 }
 

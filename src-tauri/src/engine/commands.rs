@@ -3,9 +3,14 @@ use std::collections::{HashMap, HashSet};
 use tauri::State;
 
 use super::cues::CuelistKind;
+use super::effects::EffectConfig;
 use super::groups::Group;
 use super::legacy_playback::{LegacyAsset, LegacyStep};
-use super::manager::{CommandResult, CuelistDto, EngineManager, PatchIndexEntry, PlaybackStatus};
+use super::manager::{
+    CommandResult, CuelistDto, EffectConfigInput, EffectRunStatus, EngineManager, PatchIndexEntry, PixelMapRunStatus,
+    PlaybackStatus,
+};
+use super::pixelmap::{PixelGenerator, PixelMap};
 use super::playback::FaderMode;
 use super::presets::{Preset, PresetFamily};
 
@@ -267,4 +272,94 @@ pub fn engine_playback_set_fader(engine: State<EngineManager>, id: u32, percent:
 #[tauri::command]
 pub fn engine_playback_set_fader_mode(engine: State<EngineManager>, id: u32, mode: FaderMode) -> Result<(), String> {
     engine.playback_set_fader_mode(id, mode)
+}
+
+// --- Effects (Phase 7) ---
+
+#[tauri::command]
+pub fn engine_create_effect(engine: State<EngineManager>, input: EffectConfigInput) -> u32 {
+    engine.create_effect(input)
+}
+
+#[tauri::command]
+pub fn engine_list_effects(engine: State<EngineManager>) -> Vec<EffectConfig> {
+    engine.list_effects()
+}
+
+#[tauri::command]
+pub fn engine_rename_effect(engine: State<EngineManager>, id: u32, name: String) -> Result<(), String> {
+    engine.rename_effect(id, name)
+}
+
+#[tauri::command]
+pub fn engine_delete_effect(engine: State<EngineManager>, id: u32) {
+    engine.delete_effect(id);
+}
+
+#[tauri::command]
+pub fn engine_start_effect(engine: State<EngineManager>, effect_id: u32, fixture_numbers: Vec<u32>) -> Result<u32, String> {
+    engine.start_effect(effect_id, fixture_numbers)
+}
+
+#[tauri::command]
+pub fn engine_stop_effect(engine: State<EngineManager>, id: u32) {
+    engine.stop_effect(id);
+}
+
+#[tauri::command]
+pub fn engine_list_running_effects(engine: State<EngineManager>) -> Vec<EffectRunStatus> {
+    engine.list_running_effects()
+}
+
+// --- Pixel maps (Phase 7) ---
+
+#[tauri::command]
+pub fn engine_create_pixelmap(engine: State<EngineManager>, name: String, width: u32, height: u32) -> u32 {
+    engine.create_pixelmap(name, width, height)
+}
+
+#[tauri::command]
+pub fn engine_list_pixelmaps(engine: State<EngineManager>) -> Vec<PixelMap> {
+    engine.list_pixelmaps()
+}
+
+#[tauri::command]
+pub fn engine_rename_pixelmap(engine: State<EngineManager>, id: u32, name: String) -> Result<(), String> {
+    engine.rename_pixelmap(id, name)
+}
+
+#[tauri::command]
+pub fn engine_delete_pixelmap(engine: State<EngineManager>, id: u32) {
+    engine.delete_pixelmap(id);
+}
+
+#[tauri::command]
+pub fn engine_set_pixelmap_cell(
+    engine: State<EngineManager>,
+    id: u32,
+    x: u32,
+    y: u32,
+    fixture_number: Option<u32>,
+) -> Result<(), String> {
+    engine.set_pixelmap_cell(id, x, y, fixture_number)
+}
+
+#[tauri::command]
+pub fn engine_set_pixelmap_generator(engine: State<EngineManager>, id: u32, generator: PixelGenerator) -> Result<(), String> {
+    engine.set_pixelmap_generator(id, generator)
+}
+
+#[tauri::command]
+pub fn engine_start_pixelmap(engine: State<EngineManager>, pixelmap_id: u32) -> Result<u32, String> {
+    engine.start_pixelmap(pixelmap_id)
+}
+
+#[tauri::command]
+pub fn engine_stop_pixelmap(engine: State<EngineManager>, id: u32) {
+    engine.stop_pixelmap(id);
+}
+
+#[tauri::command]
+pub fn engine_list_running_pixelmaps(engine: State<EngineManager>) -> Vec<PixelMapRunStatus> {
+    engine.list_running_pixelmaps()
 }
